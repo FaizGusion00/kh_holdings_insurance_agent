@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { BottomNav } from "./(ui)/components/BottomNav";
-import { AnimatePresence } from "framer-motion";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -33,9 +32,7 @@ export default function RootLayout({
 				<div className="floating-particle"></div>
 				<div className="floating-particle"></div>
 				
-				<AnimatePresence mode="wait">
-					{children}
-				</AnimatePresence>
+				{children}
 				
 				<BottomNav />
 			</body>

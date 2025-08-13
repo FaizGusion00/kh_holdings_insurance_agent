@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import Link from "next/link";
 import Image from "next/image";
 import { Button } from "../(ui)/components/ui";
@@ -75,13 +75,11 @@ export default function LoginPage() {
 
 	return (
 		<>
-			<AnimatePresence>
-				{isLoading && <LoadingOverlay text="Authenticating..." />}
-			</AnimatePresence>
+			{isLoading && <LoadingOverlay text="Authenticating..." />}
 
 			<PageTransition>
-				<div className="min-h-screen flex items-center justify-center p-4">
-					<div className="w-full max-w-6xl bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden">
+				<div className="min-h-screen flex items-center justify-center p-3 sm:p-4 lg:p-6">
+					<div className="w-full max-w-4xl xl:max-w-6xl bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden">
 						<div className="grid grid-cols-1 md:grid-cols-2">
 							{/* Left Section - Logo */}
 							<FadeIn delay={0.2}>
@@ -117,23 +115,20 @@ export default function LoginPage() {
 										</ScaleIn>
 
 										{/* Error Messages */}
-										<AnimatePresence>
-											{errors.length > 0 && (
-												<motion.div
-													initial={{ opacity: 0, y: -10, height: 0 }}
-													animate={{ opacity: 1, y: 0, height: "auto" }}
-													exit={{ opacity: 0, y: -10, height: 0 }}
-													className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg"
-												>
-													{errors.map((error, index) => (
-														<div key={index} className="text-red-600 text-sm flex items-center gap-2">
-															<span className="w-2 h-2 bg-red-400 rounded-full" />
-															{error}
-														</div>
-													))}
-												</motion.div>
-											)}
-										</AnimatePresence>
+										{errors.length > 0 && (
+											<motion.div
+												initial={{ opacity: 0, y: -10, height: 0 }}
+												animate={{ opacity: 1, y: 0, height: "auto" }}
+												className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg"
+											>
+												{errors.map((error, index) => (
+													<div key={index} className="text-red-600 text-sm flex items-center gap-2">
+														<span className="w-2 h-2 bg-red-400 rounded-full" />
+														{error}
+													</div>
+												))}
+											</motion.div>
+										)}
 
 										<form className="space-y-6" onSubmit={handleLogin}>
 											<FadeIn delay={0.8}>
