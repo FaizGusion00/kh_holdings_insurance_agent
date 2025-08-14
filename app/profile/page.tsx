@@ -49,6 +49,10 @@ export default function ProfilePage() {
 									<div className="font-medium text-sm sm:text-base leading-tight">NOR ZAKIAH BINTI WAN OMAR</div>
 								</div>
 								<div>
+									<div className="text-gray-500 text-xs sm:text-sm">Agent Number</div>
+									<div className="font-medium text-sm sm:text-base">KH-001234</div>
+								</div>
+								<div>
 									<div className="text-gray-500 text-xs sm:text-sm">Phone Number</div>
 									<div className="font-medium text-sm sm:text-base">+60192131100</div>
 								</div>

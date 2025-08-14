@@ -33,9 +33,9 @@ export default function LoginPage() {
 		const newErrors: string[] = [];
 		
 		if (!formData.phone.trim()) {
-			newErrors.push("Phone number is required");
+			newErrors.push("Agent number is required");
 		} else if (formData.phone.trim().length < 8) {
-			newErrors.push("Phone number must be at least 8 digits");
+			newErrors.push("Agent number must be at least 8 digits");
 		}
 		
 		if (!formData.password.trim()) {
@@ -133,7 +133,7 @@ export default function LoginPage() {
 										<form className="space-y-6" onSubmit={handleLogin}>
 											<FadeIn delay={0.8}>
 												<div className="space-y-2">
-													<label className="text-sm text-gray-700 font-medium">Phone Number</label>
+													<label className="text-sm text-gray-700 font-medium">Agent Number</label>
 													<div className="flex gap-2">
 														<input 
 															value="+60" 
@@ -144,7 +144,7 @@ export default function LoginPage() {
 															name="phone"
 															value={formData.phone}
 															onChange={handleInputChange}
-															placeholder="Phone Number" 
+															placeholder="Agent Number" 
 															className="flex-1 h-12 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-all duration-200 input-enhanced" 
 														/>
 													</div>
