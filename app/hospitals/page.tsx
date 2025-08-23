@@ -7,7 +7,7 @@ import Link from "next/link";
 export default function HospitalsPage() {
 	return (
 		<div className="min-h-screen flex items-center justify-center p-3 sm:p-4 lg:p-6">
-			<div className="w-full max-w-4xl xl:max-w-6xl glass-panel p-4 sm:p-6 lg:p-10 kh-outline">
+			<div className="w-full max-w-4xl xl:max-w-6xl green-gradient-border p-4 sm:p-6 lg:p-10">
 				<div className="flex flex-col gap-6 sm:gap-8 lg:gap-10">
 					<div className="flex flex-col items-center text-center gap-4 sm:gap-6">
 						<Image src="/emas.svg" alt="emas" width={220} height={100} className="w-32 h-auto sm:w-44 lg:w-56 xl:w-64" />

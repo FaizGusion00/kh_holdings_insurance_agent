@@ -50,7 +50,7 @@ export default function DashboardPage() {
 	return (
 		<PageTransition>
 			<div className="min-h-screen flex items-center justify-center p-3 sm:p-4 lg:p-6">
-				<div className="relative w-full max-w-4xl xl:max-w-6xl glass-panel p-4 sm:p-6 lg:p-10 kh-outline">
+				<div className="relative w-full max-w-4xl xl:max-w-6xl green-gradient-border p-4 sm:p-6 lg:p-10">
 					{/* Profile Badge */}
 					<FadeIn delay={0.3}>
 						<div className="absolute right-3 sm:right-6 top-3 sm:top-6 w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-rose-200 text-rose-900 grid place-content-center font-semibold text-sm sm:text-base">N</div>
@@ -61,7 +61,7 @@ export default function DashboardPage() {
 						<FadeIn delay={0.4}>
 							<div>
 								<p className="text-gray-500 text-sm sm:text-base">Hello</p>
-								<h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">NOR ZAKIAH</h1>
+								<h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">NOR ZAKIAH BINTI WAN OMAR</h1>
 							</div>
 						</FadeIn>
 						

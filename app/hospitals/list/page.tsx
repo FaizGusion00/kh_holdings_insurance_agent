@@ -25,7 +25,7 @@ export default function HospitalsListPage() {
 
 	return (
 		<div className="min-h-screen flex items-center justify-center p-3 sm:p-4 lg:p-6">
-			<div className="w-full max-w-4xl xl:max-w-6xl glass-panel p-4 sm:p-6 lg:p-10 kh-outline">
+			<div className="w-full max-w-4xl xl:max-w-6xl green-gradient-border p-4 sm:p-6 lg:p-10">
 				<div className="flex flex-col gap-4 sm:gap-6">
 					<h2 className="text-lg sm:text-xl lg:text-2xl font-semibold">All hospitals</h2>
 					

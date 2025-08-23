@@ -319,3 +319,54 @@ body::before {
 .status-pulse {
 	animation: statusPulse 1.5s ease-in-out infinite;
 }
+
+/* Green gradient animated borders for page containers */
+.green-gradient-border {
+	position: relative;
+	border-radius: 1.5rem;
+	background: white;
+	overflow: hidden;
+}
+
+.green-gradient-border::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	padding: 1px;
+	background: linear-gradient(45deg, #d1fae5, #a7f3d0, #6ee7b7, #34d399, #10b981);
+	background-size: 400% 400%;
+	border-radius: 1.5rem;
+	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	animation: greenGradientShift 4s ease-in-out infinite;
+}
+
+@keyframes greenGradientShift {
+	0%, 100% {
+		background-position: 0% 50%;
+	}
+	50% {
+		background-position: 100% 50%;
+	}
+}
+
+/* Alternative thinner border version */
+.green-gradient-border-thin {
+	position: relative;
+	border-radius: 1.5rem;
+	background: white;
+	overflow: hidden;
+}
+
+.green-gradient-border-thin::before {
+	content: '';
+	position: absolute;
+	inset: 0;
+	padding: 1px;
+	background: linear-gradient(45deg, #d1fae5, #a7f3d0, #6ee7b7, #34d399, #10b981);
+	background-size: 400% 400%;
+	border-radius: 1.5rem;
+	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+	mask-composite: exclude;
+	animation: greenGradientShift 4s ease-in-out infinite;
+}
