@@ -61,7 +61,7 @@ export default function DashboardPage() {
 						<FadeIn delay={0.4}>
 							<div>
 								<p className="text-gray-500 text-sm sm:text-base">Hello</p>
-								<h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">NOR ZAKIAH BINTI ABU JAHAL</h1>
+								<h1 className="text-xl sm:text-2xl lg:text-3xl font-semibold leading-tight">NOR ZAKIAH</h1>
 							</div>
 						</FadeIn>
 						

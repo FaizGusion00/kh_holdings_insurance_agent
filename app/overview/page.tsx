@@ -5,7 +5,7 @@ export default function OverviewPage() {
 				<div className="grid grid-cols-1 md:grid-cols-[240px_1fr] lg:grid-cols-[260px_1fr] gap-4 sm:gap-6 lg:gap-8">
 					<div className="space-y-2 sm:space-y-3">
 						<div className="rounded-full w-12 h-12 sm:w-14 sm:h-14 bg-blue-600 text-white grid place-content-center text-lg sm:text-xl font-semibold">N</div>
-						<div className="font-semibold text-sm sm:text-base leading-tight">NOR ZAKIAH BINTI ABU JAHAL</div>
+						<div className="font-semibold text-sm sm:text-base leading-tight">NOR ZAKIAH</div>
 						<div className="text-gray-500 text-xs sm:text-sm">+60192131100</div>
 						<div className="mt-3 sm:mt-4 space-y-2">
 							<div className="h-8 sm:h-10 rounded-lg bg-blue-600/90 text-white grid place-content-center text-xs sm:text-sm">Overview</div>

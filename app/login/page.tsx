@@ -19,10 +19,24 @@ export default function LoginPage() {
 	});
 
 	const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-		setFormData(prev => ({
-			...prev,
-			[e.target.name]: e.target.value
-		}));
+		const value = e.target.value;
+		
+		// Only allow digits for agent number
+		if (e.target.name === "phone") {
+			const digitsOnly = value.replace(/\D/g, '');
+			if (digitsOnly.length <= 6) {
+				setFormData(prev => ({
+					...prev,
+					[e.target.name]: digitsOnly
+				}));
+			}
+		} else {
+			setFormData(prev => ({
+				...prev,
+				[e.target.name]: value
+			}));
+		}
+		
 		// Clear errors when user starts typing
 		if (errors.length > 0) {
 			setErrors([]);
@@ -34,8 +48,10 @@ export default function LoginPage() {
 		
 		if (!formData.phone.trim()) {
 			newErrors.push("Agent number is required");
-		} else if (formData.phone.trim().length < 8) {
-			newErrors.push("Agent number must be at least 8 digits");
+		} else if (formData.phone.trim().length < 5) {
+			newErrors.push("Agent number must be at least 5 digits");
+		} else if (formData.phone.trim().length > 6) {
+			newErrors.push("Agent number must not exceed 6 digits");
 		}
 		
 		if (!formData.password.trim()) {
@@ -77,10 +93,143 @@ export default function LoginPage() {
 		<>
 			{isLoading && <LoadingOverlay text="Authenticating..." />}
 
+			{/* Animated Background */}
+			<motion.div 
+				className="fixed inset-0 -z-10 overflow-hidden"
+				initial={{ opacity: 0 }}
+				animate={{ opacity: 1 }}
+				transition={{ duration: 2, ease: "easeOut" }}
+			>
+				{/* Main gradient background */}
+				<motion.div 
+					className="absolute inset-0 bg-gradient-to-br from-white via-blue-50 to-indigo-100"
+					animate={{
+						background: [
+							"linear-gradient(135deg, #ffffff 0%, #ffffff 50%, #eff6ff 70%, #e0e7ff 100%)",
+							"linear-gradient(135deg, #ffffff 0%, #ffffff 50%, #dbeafe 70%, #c7d2fe 100%)",
+							"linear-gradient(135deg, #ffffff 0%, #ffffff 50%, #eff6ff 70%, #e0e7ff 100%)"
+						]
+					}}
+					transition={{
+						duration: 12,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.5, 1]
+					}}
+				/>
+				
+				{/* Animated floating shapes */}
+				<motion.div
+					className="absolute top-1/4 left-1/4 w-32 h-32 bg-gradient-to-r from-blue-400 to-indigo-500 rounded-full opacity-40 blur-xl"
+					animate={{
+						x: [0, 40, -20, 0],
+						y: [0, -30, 20, 0],
+						scale: [1, 1.15, 0.9, 1],
+						rotate: [0, 180, 360, 0]
+					}}
+					transition={{
+						duration: 20,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.33, 0.66, 1]
+					}}
+				/>
+				
+				<motion.div
+					className="absolute top-1/3 right-1/4 w-24 h-24 bg-gradient-to-r from-indigo-400 to-purple-500 rounded-full opacity-40 blur-xl"
+					animate={{
+						x: [0, -35, 25, 0],
+						y: [0, 25, -15, 0],
+						scale: [1, 0.85, 1.1, 1],
+						rotate: [0, -180, -360, 0]
+					}}
+					transition={{
+						duration: 25,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.33, 0.66, 1]
+					}}
+				/>
+				
+				<motion.div
+					className="absolute bottom-1/4 left-1/3 w-40 h-40 bg-gradient-to-r from-blue-500 to-indigo-600 rounded-full opacity-35 blur-2xl"
+					animate={{
+						x: [0, 30, -25, 0],
+						y: [0, -40, 30, 0],
+						scale: [1, 1.25, 0.8, 1],
+						rotate: [0, 90, 270, 0]
+					}}
+					transition={{
+						duration: 30,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.33, 0.66, 1]
+					}}
+				/>
+				
+				{/* Additional subtle floating elements */}
+				<motion.div
+					className="absolute top-1/2 right-1/3 w-16 h-16 bg-gradient-to-r from-blue-300 to-indigo-400 rounded-full opacity-25 blur-lg"
+					animate={{
+						x: [0, 15, -10, 0],
+						y: [0, -20, 15, 0],
+						scale: [1, 1.1, 0.9, 1]
+					}}
+					transition={{
+						duration: 18,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.33, 0.66, 1]
+					}}
+				/>
+				
+				<motion.div
+					className="absolute bottom-1/3 right-1/2 w-20 h-20 bg-gradient-to-r from-indigo-300 to-purple-400 rounded-full opacity-20 blur-lg"
+					animate={{
+						x: [0, -20, 25, 0],
+						y: [0, 30, -25, 0],
+						scale: [1, 0.9, 1.15, 1]
+					}}
+					transition={{
+						duration: 22,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.33, 0.66, 1]
+					}}
+				/>
+				
+				{/* Bottom wave effect with smoother animation */}
+				<motion.div
+					className="absolute bottom-0 left-0 right-0 h-32 bg-gradient-to-r from-blue-400 via-indigo-500 to-purple-500"
+					style={{
+						clipPath: "polygon(0 100%, 100% 100%, 100% 0, 80% 50%, 60% 0, 40% 50%, 20% 0, 0 50%)"
+					}}
+					animate={{
+						clipPath: [
+							"polygon(0 100%, 100% 100%, 100% 0, 80% 50%, 60% 0, 40% 50%, 20% 0, 0 50%)",
+							"polygon(0 100%, 100% 100%, 100% 0, 85% 35%, 70% 0, 55% 65%, 35% 0, 15% 45%, 0 35%)",
+							"polygon(0 100%, 100% 100%, 100% 0, 90% 40%, 75% 0, 60% 60%, 45% 0, 30% 50%, 15% 0, 0 40%)",
+							"polygon(0 100%, 100% 100%, 100% 0, 80% 50%, 60% 0, 40% 50%, 20% 0, 0 50%)"
+						]
+					}}
+					transition={{
+						duration: 15,
+						repeat: Infinity,
+						ease: "easeInOut",
+						times: [0, 0.25, 0.5, 1]
+					}}
+				/>
+			</motion.div>
+
 			<PageTransition>
 				<div className="min-h-screen flex items-center justify-center p-3 sm:p-4 lg:p-6">
-					<div className="w-full max-w-4xl xl:max-w-6xl bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden">
-						<div className="grid grid-cols-1 md:grid-cols-2">
+					<div className="w-full max-w-4xl xl:max-w-6xl rounded-3xl shadow-2xl overflow-hidden relative">
+						{/* Green gradient border with proper structure */}
+						<div className="absolute inset-0 rounded-3xl bg-gradient-to-r from-emerald-400 via-green-500 to-teal-500 p-[3px]">
+							<div className="w-full h-full bg-white rounded-3xl"></div>
+						</div>
+						
+						<div className="relative z-10 grid grid-cols-1 md:grid-cols-2">
 							{/* Left Section - Logo */}
 							<FadeIn delay={0.2}>
 								<motion.div
@@ -136,18 +285,20 @@ export default function LoginPage() {
 													<label className="text-sm text-gray-700 font-medium">Agent Number</label>
 													<div className="flex gap-2">
 														<input 
-															value="+60" 
+															value="AGT" 
 															disabled 
-															className="w-16 h-12 rounded-lg border border-gray-200 bg-gray-50 text-center text-gray-600" 
+															className="w-16 h-12 rounded-lg border border-gray-200 bg-gray-50 text-center text-gray-600 font-medium" 
 														/>
 														<input 
 															name="phone"
 															value={formData.phone}
 															onChange={handleInputChange}
-															placeholder="Agent Number" 
+															placeholder="12345" 
+															maxLength={6}
 															className="flex-1 h-12 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300 transition-all duration-200 input-enhanced" 
 														/>
 													</div>
+													<p className="text-xs text-gray-500">Please enter your agent number</p>
 												</div>
 											</FadeIn>
 
