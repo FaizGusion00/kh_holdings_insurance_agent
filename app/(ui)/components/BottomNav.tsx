@@ -8,7 +8,7 @@ import { Home, Compass, FileText, Hospital, UserRound, ChevronUp } from "lucide-
 const items = [
 	{ href: "/dashboard", icon: Home, label: "Dashboard" },
 	{ href: "/explore", icon: Compass, label: "Explore" },
-	{ href: "#", icon: FileText, label: "Docs", disabled: true }, // Disabled - does nothing
+	{ href: "/records", icon: FileText, label: "Records" },
 	{ href: "/hospitals", icon: Hospital, label: "Hospitals" },
 	{ href: "/profile", icon: UserRound, label: "Profile" },
 ];
@@ -69,11 +69,7 @@ export function BottomNav() {
 
 	if (pathname?.startsWith("/login")) return null;
 
-	const handleNavClick = (href: string, disabled?: boolean) => {
-		if (disabled) {
-			// Do nothing for disabled items
-			return;
-		}
+	const handleNavClick = (href: string) => {
 		// Reset timers when navigation is used
 		setIsVisible(true);
 		setIsExpanded(true);
@@ -95,21 +91,9 @@ export function BottomNav() {
 				<nav className={`rounded-2xl border border-blue-100 bg-blue-50 shadow-md transition-all duration-300 ease-in-out ${
 					isExpanded ? 'px-3 sm:px-5 py-2 sm:py-3' : 'px-2 py-2'
 				} flex items-center gap-4 sm:gap-7 text-blue-700`}>
-					{items.map(({ href, icon: Icon, label, disabled }) => {
+					{items.map(({ href, icon: Icon, label }) => {
 						const active = pathname === href;
-						const isDisabled = disabled || href === "#";
 						
-						if (isDisabled) {
-							return (
-								<div key={href} className="group cursor-default">
-									<div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl grid place-content-center transition opacity-50 ${active ? "bg-blue-200 text-blue-900" : "text-blue-700"}`}>
-										<Icon size={16} className="sm:w-[18px] sm:h-[18px]" />
-									</div>
-									<span className="sr-only">{label}</span>
-								</div>
-							);
-						}
-
 						return (
 							<Link key={href} href={href} className="group" onClick={() => handleNavClick(href)}>
 								<div className={`w-8 h-8 sm:w-10 sm:h-10 rounded-xl grid place-content-center transition ${active ? "bg-blue-200 text-blue-900" : "text-blue-700 hover:bg-blue-100"}`}>

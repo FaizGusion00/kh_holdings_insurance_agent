@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { BottomNav } from "./(ui)/components/BottomNav";
+import { ConditionalBottomNav } from "./(ui)/components/ConditionalBottomNav";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -34,7 +35,7 @@ export default function RootLayout({
 				
 				{children}
 				
-				<BottomNav />
+				<ConditionalBottomNav />
 			</body>
 		</html>
 	);

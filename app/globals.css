@@ -339,6 +339,7 @@ body::before {
 	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
 	mask-composite: exclude;
 	animation: greenGradientShift 4s ease-in-out infinite;
+	pointer-events: none; /* Do not block clicks on content */
 }
 
 @keyframes greenGradientShift {
@@ -369,4 +370,5 @@ body::before {
 	mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
 	mask-composite: exclude;
 	animation: greenGradientShift 4s ease-in-out infinite;
+	pointer-events: none; /* Do not block clicks on content */
 }
