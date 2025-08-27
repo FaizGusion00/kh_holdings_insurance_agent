@@ -91,16 +91,16 @@ export default function ForgotPasswordPage() {
 	if (isSuccess) {
 		return (
 			<PageTransition>
-				<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
-					<div className="w-full max-w-md bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden relative">
-						<div className="p-8 text-center">
+				<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50 via-white to-blue-50">
+					<div className="w-full max-w-md bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl border border-gray-100 overflow-hidden relative">
+						<div className="p-6 sm:p-8 text-center">
 							<motion.div
 								initial={{ scale: 0 }}
 								animate={{ scale: 1 }}
 								transition={{ type: "spring", stiffness: 200, damping: 20 }}
-								className="w-20 h-20 mx-auto mb-6 bg-gradient-to-br from-emerald-500 to-green-500 rounded-full flex items-center justify-center shadow-lg"
+								className="w-16 h-16 sm:w-20 sm:h-20 mx-auto mb-4 sm:mb-6 bg-gradient-to-br from-[#264EE4] to-[#264EE4] rounded-full flex items-center justify-center shadow-lg"
 							>
-								<CheckCircle className="w-10 h-10 text-white" />
+								<CheckCircle className="w-8 h-8 sm:w-10 sm:h-10 text-white" />
 							</motion.div>
 							
 							<motion.h2
@@ -128,9 +128,9 @@ export default function ForgotPasswordPage() {
 								className="space-y-3"
 							>
 								<Link href="/login">
-									<Button className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5">
-										Back to Login
-									</Button>
+																	<Button className="w-full h-10 sm:h-12 text-sm sm:text-base font-semibold bg-gradient-to-r from-[#264EE4] to-[#264EE4] hover:from-[#264EE4]/90 hover:to-[#264EE4]/90 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5">
+									Back to Login
+								</Button>
 								</Link>
 							</motion.div>
 						</div>
@@ -145,12 +145,12 @@ export default function ForgotPasswordPage() {
 			{isLoading && <LoadingOverlay text="Sending reset link..." />}
 
 			<PageTransition>
-				<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50 via-white to-emerald-50">
-					<div className="w-full max-w-4xl xl:max-w-5xl bg-white rounded-3xl shadow-2xl border border-gray-100 overflow-hidden relative">
+				<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50 via-white to-blue-50">
+					<div className="w-full max-w-4xl xl:max-w-5xl bg-white rounded-2xl sm:rounded-3xl shadow-xl sm:shadow-2xl border border-gray-100 overflow-hidden relative">
 						{/* Background decorative elements */}
-						<div className="absolute inset-0 bg-gradient-to-br from-blue-50/30 to-emerald-50/30 pointer-events-none" />
-						<div className="absolute top-0 right-0 w-32 h-32 bg-gradient-to-br from-blue-100/20 to-transparent rounded-full -translate-y-16 translate-x-16" />
-						<div className="absolute bottom-0 left-0 w-24 h-24 bg-gradient-to-tr from-emerald-100/20 to-transparent rounded-full translate-y-12 -translate-x-12" />
+						<div className="absolute inset-0 bg-gradient-to-br from-blue-50/30 to-blue-50/30 pointer-events-none" />
+						<div className="absolute top-0 right-0 w-20 h-20 sm:w-32 sm:h-32 bg-gradient-to-br from-blue-100/20 to-transparent rounded-full -translate-y-8 sm:-translate-y-16 translate-x-8 sm:translate-x-16" />
+						<div className="absolute bottom-0 left-0 w-16 h-16 sm:w-24 sm:h-24 bg-gradient-to-tr from-blue-100/20 to-transparent rounded-full translate-y-6 sm:translate-y-12 -translate-x-6 sm:-translate-x-12" />
 						
 						<div className="grid grid-cols-1 md:grid-cols-2 relative">
 							{/* Left Section - Enhanced Logo & Branding */}
@@ -159,25 +159,27 @@ export default function ForgotPasswordPage() {
 									initial={{ opacity: 0, x: -20 }}
 									animate={{ opacity: 1, x: 0 }}
 									transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
-									className="flex flex-col items-center justify-center p-6 sm:p-8 md:p-10 lg:p-12 h-full bg-gradient-to-br from-blue-50/50 to-emerald-50/50 relative overflow-hidden"
+									className="flex flex-col items-center justify-center p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 h-full bg-gradient-to-br from-blue-50/50 to-blue-50/50 relative overflow-hidden"
 								>
-									<div className="text-center space-y-4">
-										<Image
-											src="/logo.png"
-											alt="WeKongsi"
-											width={520}
-											height={280}
-											priority
-											className="w-[140px] sm:w-[180px] md:w-[240px] lg:w-[320px] h-auto drop-shadow-lg"
-										/>
+									<div className="text-center space-y-3 sm:space-y-4">
+										<div className="flex justify-center">
+											<Image
+												src="/logo.png"
+												alt="WeKongsi"
+												width={520}
+												height={280}
+												priority
+												className="w-[120px] sm:w-[160px] md:w-[200px] lg:w-[280px] xl:w-[320px] h-auto drop-shadow-lg"
+											/>
+										</div>
 										<motion.div
 											initial={{ opacity: 0, y: 20 }}
 											animate={{ opacity: 1, y: 0 }}
 											transition={{ delay: 0.8, duration: 0.6 }}
 											className="space-y-2"
 										>
-											<h3 className="text-lg sm:text-xl md:text-2xl font-semibold text-gray-800">Forgot Password?</h3>
-											<p className="text-gray-600 text-sm sm:text-base max-w-xs">Don&apos;t worry! We&apos;ll help you reset your password securely</p>
+											<h3 className="text-base sm:text-lg md:text-xl lg:text-2xl font-semibold text-gray-800">Forgot Password?</h3>
+											<p className="text-gray-600 text-xs sm:text-sm md:text-base max-w-xs">Don&apos;t worry! We&apos;ll help you reset your password securely</p>
 										</motion.div>
 									</div>
 								</motion.div>
@@ -189,16 +191,16 @@ export default function ForgotPasswordPage() {
 									initial={{ opacity: 0, x: 20 }}
 									animate={{ opacity: 1, x: 0 }}
 									transition={{ duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] }}
-									className="flex items-center justify-center p-6 sm:p-8 md:p-10 lg:p-12 bg-white"
+									className="flex items-center justify-center p-4 sm:p-6 md:p-8 lg:p-10 xl:p-12 bg-white"
 								>
 									<div className="w-full max-w-sm sm:max-w-md">
 										<ScaleIn delay={0.6}>
-											<div className="text-center mb-8">
-												<div className="w-16 h-16 mx-auto mb-4 bg-gradient-to-br from-blue-500 to-emerald-500 rounded-2xl flex items-center justify-center shadow-lg">
-													<Mail className="w-8 h-8 text-white" />
+											<div className="text-center mb-6 sm:mb-8">
+												<div className="w-12 h-12 sm:w-14 sm:h-14 md:w-16 md:h-16 mx-auto mb-3 sm:mb-4 bg-gradient-to-br from-[#264EE4] to-[#264EE4] rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg">
+													<Mail className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 text-white" />
 												</div>
-												<h2 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2">Reset Password</h2>
-												<p className="text-gray-600 text-sm sm:text-base">Enter your details to receive a reset link</p>
+												<h2 className="text-xl sm:text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 mb-2">Reset Password</h2>
+												<p className="text-gray-600 text-xs sm:text-sm md:text-base">Enter your details to receive a reset link</p>
 											</div>
 										</ScaleIn>
 
@@ -218,18 +220,18 @@ export default function ForgotPasswordPage() {
 											</motion.div>
 										)}
 
-										<form className="space-y-6" onSubmit={handleSubmit}>
+										<form className="space-y-4 sm:space-y-6" onSubmit={handleSubmit}>
 											<FadeIn delay={0.8}>
 												<div className="space-y-3">
 													<label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-														<span className="w-2 h-2 bg-blue-500 rounded-full" />
+														<span className="w-2 h-2 bg-[#264EE4] rounded-full" />
 														Agent Number
 													</label>
-													<div className="flex gap-3">
+													<div className="flex gap-2 sm:gap-3">
 														<input 
 															value="AGT" 
 															disabled 
-															className="w-16 h-12 rounded-xl border-2 border-gray-200 bg-gray-50 text-center text-gray-600 font-semibold text-sm shadow-sm" 
+															className="w-14 sm:w-16 h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-gray-200 bg-gray-50 text-center text-gray-600 font-semibold text-xs sm:text-sm shadow-sm" 
 														/>
 														<input 
 															name="agentNumber"
@@ -239,7 +241,7 @@ export default function ForgotPasswordPage() {
 															maxLength={6}
 															pattern="[0-9]*"
 															inputMode="numeric"
-															className="flex-1 h-12 rounded-xl border-2 border-gray-200 px-4 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-300 text-sm font-medium shadow-sm hover:border-gray-300" 
+															className="flex-1 h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-gray-200 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 focus:border-[#264EE4] transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300" 
 														/>
 													</div>
 												</div>
@@ -248,7 +250,7 @@ export default function ForgotPasswordPage() {
 											<FadeIn delay={1.0}>
 												<div className="space-y-3">
 													<label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
-														<span className="w-2 h-2 bg-emerald-500 rounded-full" />
+														<span className="w-2 h-2 bg-[#264EE4] rounded-full" />
 														Email Address
 													</label>
 													<input 
@@ -257,7 +259,7 @@ export default function ForgotPasswordPage() {
 														value={formData.email}
 														onChange={handleInputChange}
 														placeholder="Enter your email address" 
-														className="w-full h-12 rounded-xl border-2 border-gray-200 px-4 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-all duration-300 text-sm font-medium shadow-sm hover:border-gray-300" 
+														className="w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-gray-200 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 focus:border-[#264EE4] transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300" 
 													/>
 												</div>
 											</FadeIn>
@@ -265,7 +267,7 @@ export default function ForgotPasswordPage() {
 											<FadeIn delay={1.2}>
 												<Button 
 													type="submit" 
-													className="w-full h-12 text-base font-semibold bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
+													className="w-full h-10 sm:h-12 text-sm sm:text-base font-semibold bg-gradient-to-r from-[#264EE4] to-[#264EE4] hover:from-[#264EE4]/90 hover:to-[#264EE4]/90 shadow-lg hover:shadow-xl transition-all duration-300 transform hover:-translate-y-0.5"
 													loading={isLoading}
 													loadingText="Sending..."
 												>
@@ -279,7 +281,7 @@ export default function ForgotPasswordPage() {
 											initial={{ opacity: 0 }}
 											animate={{ opacity: 1 }}
 											transition={{ delay: 1.4, duration: 0.6 }}
-											className="mt-6 text-center"
+											className="mt-4 sm:mt-6 text-center"
 										>
 											<Link 
 												href="/login" 
@@ -295,7 +297,7 @@ export default function ForgotPasswordPage() {
 											initial={{ opacity: 0 }}
 											animate={{ opacity: 1 }}
 											transition={{ delay: 1.6, duration: 0.6 }}
-											className="mt-8 text-center"
+											className="mt-6 sm:mt-8 text-center"
 										>
 											<p className="text-xs text-gray-500">
 												Secure password reset powered by WeKongsi Insurance Platform
