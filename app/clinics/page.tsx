@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search } from "lucide-react";
+import { apiService, HealthcareFacility } from "../services/api";
 
 export default function ClinicsPage() {
 	const states = [
@@ -20,18 +21,32 @@ export default function ClinicsPage() {
 		"Selangor",
 	];
 
-	const clinics = [
-		{ name: "KLINIK KESIHATAN BANDAR BARU UDA", address: "Jalan Padi Emas 1, Bandar Baru Uda, 81200 Johor Bahru, Johor", phone: "07-2223344", state: "Johor" },
-		{ name: "POLIKLINIK PERMAI", address: "No. 2, Jalan Sutera, Taman Sentosa, 80150 Johor Bahru, Johor", phone: "07-3345566", state: "Johor" },
-		{ name: "KLINIK MEDIVIRON TAMAN UNIVERSITI", address: "No. 5, Jalan Kebudayaan, Taman Universiti, 81300 Skudai, Johor", phone: "07-5567788", state: "Johor" },
-		{ name: "KLINIK KESIHATAN AMPANG", address: "Jalan Memanda 3, Bandar Baru Ampang, 68000 Ampang, Selangor", phone: "03-42534455", state: "Selangor" },
-		{ name: "KLINIK PERGIGIAN IPOH", address: "Jalan Hospital, 30450 Ipoh, Perak", phone: "05-2531122", state: "Perak" },
-	];
+	const [clinics, setClinics] = useState<HealthcareFacility[]>([]);
+	const [isLoading, setIsLoading] = useState(true);
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedState, setSelectedState] = useState<string>("All");
 	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(10);
+
+	// Fetch clinics data
+	useEffect(() => {
+		const fetchClinics = async () => {
+			try {
+				setIsLoading(true);
+				const response = await apiService.getClinics();
+				if (response.success && response.data) {
+					setClinics(response.data);
+				}
+			} catch (error) {
+				console.error('Failed to fetch clinics:', error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchClinics();
+	}, []);
 
 	const filteredClinics = clinics.filter((clinic) => {
 		const matchesState = selectedState === "All" || clinic.state === selectedState;
@@ -39,7 +54,7 @@ export default function ClinicsPage() {
 		const matchesSearch =
 			clinic.name.toLowerCase().includes(q) ||
 			clinic.address.toLowerCase().includes(q) ||
-			clinic.phone.includes(searchQuery) ||
+			clinic.phone.toLowerCase().includes(q) ||
 			clinic.state.toLowerCase().includes(q);
 		return matchesState && matchesSearch;
 	});
@@ -90,7 +105,9 @@ export default function ClinicsPage() {
 								<div className="bg-gray-50 px-3 sm:px-4 py-2 font-medium text-sm sm:text-base">Private Clinics</div>
 								<div className="px-3 sm:px-4 py-2 bg-gray-50 border-t border-blue-100 text-xs sm:text-sm">{selectedState === "All" ? "All Malaysia" : selectedState}</div>
 								<div className="divide-y">
-									{pageItems.length > 0 ? (
+									{isLoading ? (
+										<div className="p-8 text-center text-gray-500">Loading clinics...</div>
+									) : pageItems.length > 0 ? (
 										pageItems.map((c, i) => (
 											<div key={i} className="p-3 sm:p-4">
 												<div className="font-semibold text-sm sm:text-base leading-tight">{c.name}</div>

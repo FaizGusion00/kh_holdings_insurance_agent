@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Calendar, Activity, Users, CheckCircle2, FileText, DollarSign } from "lucide-react";
 import {
@@ -13,6 +13,10 @@ import {
 	YAxis,
 	DotProps
 } from "recharts";
+
+import { apiService } from "../services/api";
+import type { RecordsSharingResponse, SharingMonthlyPerformanceItem } from "../services/api";
+import { useAuth } from "../contexts/AuthContext";
 
 type MonthlyRecord = {
 	monthLabel: string; // e.g. "August"
@@ -34,31 +38,56 @@ export default function RecordsPage() {
 	const now = new Date();
 	const [year, setYear] = useState<number>(now.getFullYear());
 	const [month, setMonth] = useState<number>(now.getMonth());
+	const { isAuthenticated } = useAuth();
+	const [data, setData] = useState<MonthlyRecord[]>([]);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [error, setError] = useState<string>("");
 
-	// mock data generator for demo; replace with API when available
-	const data: MonthlyRecord[] = useMemo(() => {
-		const base = 2800;
-		return Array.from({ length: 18 }).map((_, i) => {
-			const date = new Date(year, month - (i), 1);
-			const members = Math.max(600, Math.round(base - i * 80 + (i % 4) * 30));
-			const clinicCases = Math.max(0, Math.round(400 - i * 15 + (i % 5) * 8));
-			const hospitalCases = Math.max(0, Math.round(7 + (i % 6) - Math.floor(i / 6)));
-			const avgCommit = Math.max(2, +(30 + (i % 7) * 1.3 - Math.floor(i / 5) * 5).toFixed(2));
-			const total = +(members * avgCommit).toFixed(2);
-			return {
-				monthLabel: monthNames[date.getMonth()],
-				period: `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-07 to ${date.getFullYear()}-${String(date.getMonth()+2).padStart(2,'0')}-06`,
-				members,
-				sharedAmount: total,
-				hospitalCases,
-				clinicCases,
-				avgCommitment: avgCommit,
-			};
-		});
-	}, [year, month]);
+	useEffect(() => {
+		let isMounted = true;
+		async function load() {
+			if (!isAuthenticated) return;
+			setIsLoading(true);
+			setError("");
+			try {
+				const res = await apiService.getSharingRecords();
+				if (res.success && (res.data as RecordsSharingResponse)?.monthly_performance) {
+					const monthly = (res.data as RecordsSharingResponse).monthly_performance as SharingMonthlyPerformanceItem[];
+					const mapped: MonthlyRecord[] = monthly.map((m) => {
+						const calcDate = new Date(year, m.month - 1, 1);
+						const members = m.new_members ?? 0;
+						const sharedAmount = Number(m.payments ?? 0);
+						const avgCommitment = members > 0 ? +(sharedAmount / members).toFixed(2) : 0;
+						const period = `${calcDate.getFullYear()}-${String(calcDate.getMonth()+1).padStart(2,'0')}-07 to ${calcDate.getFullYear()}-${String(calcDate.getMonth()+2).padStart(2,'0')}-06`;
+						return {
+							monthLabel: monthNames[calcDate.getMonth()],
+							period,
+							members,
+							sharedAmount,
+							hospitalCases: m.hospital_cases ?? 0,
+							clinicCases: m.clinic_cases ?? 0,
+							avgCommitment,
+						};
+					});
+					if (isMounted) setData(mapped.sort((a, b) => monthNames.indexOf(b.monthLabel) - monthNames.indexOf(a.monthLabel)));
+				} else {
+					throw new Error(res.message || "Failed to load records");
+				}
+			} catch (e) {
+				const message = e instanceof Error ? e.message : "Failed to load records";
+				if (isMounted) setError(message);
+			} finally {
+				if (isMounted) setIsLoading(false);
+			}
+		}
+		load();
+		return () => { isMounted = false; };
+	}, [isAuthenticated, year]);
 
-	const current = data[0];
-	const totalApproved = current.hospitalCases + current.clinicCases;
+	const current = (data && data.length > 0)
+		? data[0]
+		: { monthLabel: monthNames[month], period: "-", members: 0, sharedAmount: 0, hospitalCases: 0, clinicCases: 0, avgCommitment: 0 } as MonthlyRecord;
+	const totalApproved = (current.hospitalCases || 0) + (current.clinicCases || 0);
 
 	// Prepare chart dataset newest on right
 	const chartData = data
@@ -88,12 +117,19 @@ export default function RecordsPage() {
 						</div>
 					</div>
 
+					{isLoading && (
+						<div className="text-sm text-gray-500">Loading records...</div>
+					)}
+					{error && !isLoading && (
+						<div className="text-sm text-red-600">{error}</div>
+					)}
+
 					{/* KPIs */}
 					<div className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-3 md:gap-4">
 						<KPI icon={<DollarSign className="w-4 h-4" />} label="Total shared medical cost" value={currency(current.sharedAmount)} />
 						<KPI icon={<Users className="w-4 h-4" />} label="Active members of the month" value={current.members.toLocaleString()} />
-						<KPI icon={<CheckCircle2 className="w-4 h-4" />} label="Total hospital cases approved" value={current.hospitalCases.toString()} />
-						<KPI icon={<CheckCircle2 className="w-4 h-4" />} label="Total clinic cases approved" value={current.clinicCases.toString()} />
+						<KPI icon={<CheckCircle2 className="w-4 h-4" />} label="Total hospital cases approved" value={(current.hospitalCases || 0).toString()} />
+						<KPI icon={<CheckCircle2 className="w-4 h-4" />} label="Total clinic cases approved" value={(current.clinicCases || 0).toString()} />
 						<KPI icon={<Activity className="w-4 h-4" />} label="Fee Shared Per Member" value={currency(current.avgCommitment)} />
 					</div>
 

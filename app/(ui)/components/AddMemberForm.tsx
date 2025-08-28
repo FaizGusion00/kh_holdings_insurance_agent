@@ -9,11 +9,17 @@ export interface NewMemberFormData {
 	name: string;
 	nric: string;
 	confirmNric: string;
+	phone: string;
+	email: string;
+	address: string;
+	date_of_birth: string;
+	gender: string;
+	occupation: string;
 	race: string;
-	relationship: string;
-	emergencyPhone: string;
-	emergencyName: string;
-	emergencyRelationship: string;
+	relationship_with_agent: string;
+	emergency_contact_phone: string;
+	emergency_contact_name: string;
+	emergency_contact_relationship: string;
 }
 
 export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData) => void }) {
@@ -22,15 +28,21 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 		name: "", 
 		nric: "", 
 		confirmNric: "", 
+		phone: "",
+		email: "",
+		address: "",
+		date_of_birth: "",
+		gender: "male",
+		occupation: "",
 		race: "Malay", 
-		relationship: "Myself",
-		emergencyPhone: "",
-		emergencyName: "",
-		emergencyRelationship: "Myself"
+		relationship_with_agent: "Myself",
+		emergency_contact_phone: "",
+		emergency_contact_name: "",
+		emergency_contact_relationship: "Myself"
 	});
 
-	const isStep1Valid = form.name && form.nric && form.confirmNric && form.nric === form.confirmNric;
-	const isStep2Valid = form.emergencyPhone && form.emergencyName && form.emergencyRelationship;
+	const isStep1Valid = form.name && form.nric && form.confirmNric && form.nric === form.confirmNric && form.phone && form.email && form.address && form.date_of_birth && form.gender && form.occupation;
+	const isStep2Valid = form.emergency_contact_phone && form.emergency_contact_name && form.emergency_contact_relationship;
 
 	const handleContinue = () => {
 		if (currentStep === 1 && isStep1Valid) {
@@ -113,7 +125,7 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 								</div>
 
 								<div>
-									<label className="text-sm font-medium text-gray-700 mb-1 block">NRIC</label>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">NRIC Number</label>
 									<input 
 										value={form.nric} 
 										onChange={(e) => setForm({...form, nric: e.target.value})} 
@@ -123,13 +135,83 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 								</div>
 
 								<div>
-									<label className="text-sm font-medium text-gray-700 mb-1 block">Confirm NRIC</label>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">Confirm NRIC Number</label>
 									<input 
 										value={form.confirmNric} 
 										onChange={(e) => setForm({...form, confirmNric: e.target.value})} 
 										placeholder="Re-enter NRIC number" 
 										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200" 
 									/>
+								</div>
+
+								<div>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">Phone Number</label>
+									<div className="flex gap-2">
+										<div className="w-16 h-11 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center text-gray-600 font-medium text-sm">
+											+60
+										</div>
+										<input 
+											value={form.phone} 
+											onChange={(e) => setForm({...form, phone: e.target.value})} 
+											placeholder="Phone number" 
+											className="flex-1 h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200" 
+										/>
+									</div>
+								</div>
+
+								<div>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">Email Address</label>
+									<input 
+										value={form.email} 
+										onChange={(e) => setForm({...form, email: e.target.value})} 
+										placeholder="Email address" 
+										type="email"
+										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200" 
+									/>
+								</div>
+
+								<div>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">Address</label>
+									<textarea 
+										value={form.address} 
+										onChange={(e) => setForm({...form, address: e.target.value})} 
+										placeholder="Full address" 
+										rows={3}
+										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200 resize-none" 
+									/>
+								</div>
+
+								<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+									<div>
+										<label className="text-sm font-medium text-gray-700 mb-1 block">Date of Birth</label>
+										<input 
+											value={form.date_of_birth} 
+											onChange={(e) => setForm({...form, date_of_birth: e.target.value})} 
+											type="date"
+											className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200" 
+										/>
+									</div>
+									<div>
+										<label className="text-sm font-medium text-gray-700 mb-1 block">Gender</label>
+										<select 
+											value={form.gender} 
+											onChange={(e) => setForm({...form, gender: e.target.value})} 
+											className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200"
+										>
+											<option value="male">Male</option>
+											<option value="female">Female</option>
+										</select>
+									</div>
+								</div>
+
+								<div>
+									<label className="text-sm font-medium text-gray-700 mb-1 block">Occupation</label>
+									<input 
+										value={form.occupation} 
+										onChange={(e) => setForm({...form, occupation: e.target.value})} 
+										placeholder="Occupation" 
+										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200" 
+										/>
 								</div>
 
 								<div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -147,10 +229,10 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 										</select>
 									</div>
 									<div>
-										<label className="text-sm font-medium text-gray-700 mb-1 block">Relationship with user</label>
+										<label className="text-sm font-medium text-gray-700 mb-1 block">Relationship with Agent</label>
 										<select 
-											value={form.relationship} 
-											onChange={(e) => setForm({...form, relationship: e.target.value})} 
+											value={form.relationship_with_agent} 
+											onChange={(e) => setForm({...form, relationship_with_agent: e.target.value})} 
 											className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 transition-all duration-200"
 										>
 											<option value="Myself">Myself</option>
@@ -208,8 +290,8 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 											+60
 										</div>
 										<input 
-											value={form.emergencyPhone} 
-											onChange={(e) => setForm({...form, emergencyPhone: e.target.value})} 
+											value={form.emergency_contact_phone} 
+											onChange={(e) => setForm({...form, emergency_contact_phone: e.target.value})} 
 											placeholder="Emergency Contact Phone Number" 
 											className="flex-1 h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-all duration-200" 
 										/>
@@ -219,8 +301,8 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 								<div>
 									<label className="text-sm font-medium text-gray-700 mb-1 block">Emergency Contact Name</label>
 									<input 
-										value={form.emergencyName} 
-										onChange={(e) => setForm({...form, emergencyName: e.target.value})} 
+										value={form.emergency_contact_name} 
+										onChange={(e) => setForm({...form, emergency_contact_name: e.target.value})} 
 										placeholder="Emergency Contact Name" 
 										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-all duration-200" 
 									/>
@@ -229,8 +311,8 @@ export function AddMemberForm({ onSubmit }: { onSubmit: (data: NewMemberFormData
 								<div>
 									<label className="text-sm font-medium text-emerald-600 mb-1 block">Emergency Contact Relationship</label>
 									<select 
-										value={form.emergencyRelationship} 
-										onChange={(e) => setForm({...form, emergencyRelationship: e.target.value})} 
+										value={form.emergency_contact_relationship} 
+										onChange={(e) => setForm({...form, emergency_contact_relationship: e.target.value})} 
 										className="w-full h-11 rounded-lg border border-gray-200 px-3 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400 transition-all duration-200"
 									>
 										<option value="Myself">Myself</option>

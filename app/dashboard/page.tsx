@@ -16,13 +16,10 @@ import { Modal } from "../(ui)/components/Modal";
 import { AddMemberForm } from "../(ui)/components/AddMemberForm";
 import { MemberDetails, MemberProfile } from "../(ui)/components/MemberDetails";
 import { useState, useEffect } from "react";
+import { useAuth } from "../contexts/AuthContext";
+import { apiService, Member, DashboardStats } from "../services/api";
 
-type Member = { name: string; nric: string; balance: number; status: string; initial: string; color: string };
-
-const mockMembers: Member[] = [
-	{ name: "KHAIRUL HAFIFZ BIN KHAIRUL OMAR KUMAR", nric: "851201145835", balance: 81.44, status: "Active", initial: "K", color: "bg-gradient-to-br from-blue-600 to-blue-700" },
-	{ name: "NOR ZAKIAH BINTI WAN OMAR", nric: "820510085336", balance: 81.44, status: "Active", initial: "N", color: "bg-gradient-to-br from-amber-500 to-amber-600" },
-];
+type MemberDisplay = { name: string; nric: string; balance: number; status: string; initial: string; color: string };
 
 function StatCard({ title, value, highlight, icon: Icon, trend }: { 
 	title: string; 
@@ -68,11 +65,22 @@ function StatCard({ title, value, highlight, icon: Icon, trend }: {
 }
 
 function MemberCard({ m }: { m: Member }) {
+	// Generate initial and color for display
+	const initial = m.name.charAt(0);
+	const colors = [
+		"bg-gradient-to-br from-blue-600 to-blue-700",
+		"bg-gradient-to-br from-amber-500 to-amber-600",
+		"bg-gradient-to-br from-green-600 to-green-700",
+		"bg-gradient-to-br from-purple-600 to-purple-700",
+		"bg-gradient-to-br from-red-600 to-red-700"
+	];
+	const color = colors[m.id % colors.length];
+	
 	return (
 		<div className="rounded-lg sm:rounded-xl border border-gray-100 bg-white p-2.5 sm:p-3 md:p-4 lg:p-5 transition-all duration-300 hover:shadow-md hover:border-blue-200 group">
 			<div className="flex items-start gap-2 sm:gap-3 md:gap-4">
-				<div className={`w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-full grid place-content-center text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg flex-shrink-0 shadow-lg ${m.color}`}>
-					{m.initial}
+				<div className={`w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-full grid place-content-center text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg flex-shrink-0 shadow-lg ${color}`}>
+					{initial}
 				</div>
 				<div className="flex-1 space-y-1.5 sm:space-y-2 min-w-0">
 					<div className="space-y-1">
@@ -108,9 +116,39 @@ function MemberCard({ m }: { m: Member }) {
 }
 
 export default function DashboardPage() {
+	const { user } = useAuth();
 	const [showAdd, setShowAdd] = useState(false);
 	const [showDetails, setShowDetails] = useState<null | MemberProfile>(null);
 	const [currentDateTime, setCurrentDateTime] = useState(new Date());
+	const [dashboardData, setDashboardData] = useState<DashboardStats | null>(null);
+	const [members, setMembers] = useState<Member[]>([]);
+	const [isLoading, setIsLoading] = useState(true);
+	
+	// Fetch dashboard data
+	useEffect(() => {
+		const fetchDashboardData = async () => {
+			try {
+				const [statsResponse, membersResponse] = await Promise.all([
+					apiService.getDashboardStats(),
+					apiService.getMembers()
+				]);
+				
+				if (statsResponse.success && statsResponse.data) {
+					setDashboardData(statsResponse.data.stats);
+				}
+				
+				if (membersResponse.success && membersResponse.data) {
+					setMembers(membersResponse.data.data);
+				}
+			} catch (error) {
+				console.error('Failed to fetch dashboard data:', error);
+			} finally {
+				setIsLoading(false);
+			}
+		};
+
+		fetchDashboardData();
+	}, []);
 	
 	// Update date and time every second
 	useEffect(() => {
@@ -177,7 +215,7 @@ export default function DashboardPage() {
 								<div className="mb-2 sm:mb-3 md:mb-4">
 									<p className="text-gray-500 text-xs sm:text-sm mb-1.5 sm:mb-2 md:mb-3">Hello, welcome back!</p>
 									<h1 className="text-base sm:text-lg md:text-xl lg:text-2xl xl:text-3xl font-bold leading-tight bg-gradient-to-r from-gray-800 via-[#264EE4] to-[#264EE4] bg-clip-text text-transparent">
-										NOR ZAKIAH BINTI WAN OMAR
+										{user?.name || 'Loading...'}
 									</h1>
 								</div>
 							</div>
@@ -189,31 +227,31 @@ export default function DashboardPage() {
 								<StaggeredItem>
 									<StatCard 
 										title="Total Member" 
-										value="4,138" 
+										value={dashboardData ? dashboardData.total_members.toString() : '0'} 
 										highlight 
 										icon={Users}
-										trend={{ value: "+12% this month", isPositive: true }}
+										trend={{ value: `+${dashboardData?.new_members || 0} this month`, isPositive: true }}
 									/>
 								</StaggeredItem>
 								<StaggeredItem>
 									<StatCard 
-										title="Shared Amount" 
-										value="RM 1,114,938.94" 
+										title="Commission Earned" 
+										value={`RM ${dashboardData ? parseFloat(dashboardData.total_commission_earned).toLocaleString() : '0.00'}`} 
 										icon={TrendingUp}
-										trend={{ value: "+8.5% vs last month", isPositive: true }}
+										trend={{ value: `${dashboardData?.target_achievement || 0}% of target`, isPositive: dashboardData ? dashboardData.target_achievement >= 50 : false }}
 									/>
 								</StaggeredItem>
 								<StaggeredItem>
 									<StatCard 
-										title="Supported Hospitals" 
-										value="271" 
+										title="Active Members" 
+										value={dashboardData ? dashboardData.active_members.toString() : '0'} 
 										icon={Hospital}
 									/>
 								</StaggeredItem>
 								<StaggeredItem>
 									<StatCard 
-										title="Supported Clinics" 
-										value="4,513" 
+										title="Network Level" 
+										value={`Level ${dashboardData ? dashboardData.mlm_level : 0}`} 
 										icon={Activity}
 									/>
 								</StaggeredItem>
@@ -238,29 +276,35 @@ export default function DashboardPage() {
 										</button>
 									</div>
 									<StaggeredContainer className="grid gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
-										{mockMembers.map((m, i) => (
-											<StaggeredItem key={i}>
-												<button 
-													onClick={()=> setShowDetails({
-														name: m.name,
-														nric: m.nric,
-														race: "Malay",
-														status: m.status,
-														paymentTerms: "Monthly ( RM40 per month )",
-														packageName: "Standard",
-														validity: "13 Days",
-														relationship: "Myself",
-														registeredAt: "2024-01-18 00:00:00",
-														emergencyName: "Khairul",
-														emergencyPhone: "+60183773150",
-														emergencyRelationship: "Partner",
-													})} 
-													className="block text-left w-full"
-												>
-													<MemberCard m={m} />
-												</button>
-											</StaggeredItem>
-										))}
+										{isLoading ? (
+											<div className="text-center py-8 text-gray-500">Loading members...</div>
+										) : members.length > 0 ? (
+											members.map((m) => (
+												<StaggeredItem key={m.id}>
+													<button 
+														onClick={()=> setShowDetails({
+															name: m.name,
+															nric: m.nric,
+															race: m.race || "Not specified",
+															status: m.status,
+															paymentTerms: "Monthly ( RM40 per month )",
+															packageName: "Standard",
+															validity: "13 Days",
+															relationship: m.relationship_with_agent || "Not specified",
+															registeredAt: m.registration_date,
+															emergencyName: m.emergency_contact_name || "Not specified",
+															emergencyPhone: m.emergency_contact_phone || "Not specified",
+															emergencyRelationship: m.emergency_contact_relationship || "Not specified",
+														})} 
+														className="block text-left w-full"
+													>
+														<MemberCard m={m} />
+													</button>
+												</StaggeredItem>
+											))
+										) : (
+											<div className="text-center py-8 text-gray-500">No members found</div>
+										)}
 									</StaggeredContainer>
 								</div>
 							</FadeIn>
@@ -271,11 +315,38 @@ export default function DashboardPage() {
 
 			{/* Add Member Modal */}
 			<Modal open={showAdd} onClose={()=> setShowAdd(false)} title="Add Member" maxWidth="max-w-4xl">
-				<AddMemberForm onSubmit={(data) => {
-					console.log("New member data:", data);
-					setShowAdd(false);
-					// Here you would typically send the data to your API
-					// For now, we'll just close the modal
+				<AddMemberForm onSubmit={async (data) => {
+					try {
+						const response = await apiService.createMember({
+							name: data.name,
+							nric: data.nric,
+							phone: data.phone,
+							email: data.email,
+							address: data.address,
+							date_of_birth: data.date_of_birth,
+							gender: data.gender,
+							occupation: data.occupation,
+							race: data.race,
+							relationship_with_agent: data.relationship_with_agent,
+							emergency_contact_name: data.emergency_contact_name,
+							emergency_contact_phone: data.emergency_contact_phone,
+							emergency_contact_relationship: data.emergency_contact_relationship,
+						});
+						
+						if (response.success) {
+							// Refresh the members list
+							const membersResponse = await apiService.getMembers();
+							if (membersResponse.success && membersResponse.data) {
+								setMembers(membersResponse.data.data);
+							}
+							setShowAdd(false);
+						} else {
+							alert('Failed to create member: ' + response.message);
+						}
+					} catch (error) {
+						console.error('Error creating member:', error);
+						alert('Failed to create member. Please try again.');
+					}
 				}} />
 			</Modal>
 

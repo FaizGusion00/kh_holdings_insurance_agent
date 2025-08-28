@@ -619,7 +619,7 @@ Hibah Gold 270 Monthly (RM150):
 ### **Boost-Specific Features for MLM System**
 - **Real-time Performance Monitoring**: Track commission calculation performance
 - **Advanced Caching**: Cache commission rules and calculations
-- **Optimized Database Queries**: Fast MLM level calculations
+- **Optimized Database Queries**: Fast MLM Network level calculations
 - **Enhanced Security**: Secure commission and payment processing
 - **API Rate Limiting**: Protect commission calculation endpoints
 - **Background Job Optimization**: Efficient commission robot processing

@@ -1,39 +1,63 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
-import HospitalsPage from "../page";
+import { apiService, HealthcareFacility } from "@/app/services/api";
 
-// Re-export the list layout only: we copy markup from the bottom half of hospitals page for simplicity
+// Hospitals list page connected to API
 export default function HospitalsListPage() {
-	// import states/hospitals mock directly here to keep the page static
-	const states = ["All", "Johor", "Kedah", "Kelantan", "Melaka", "Negeri Sembilan", "Pahang", "Perak", "Perlis", "Pulau Pinang", "Sabah", "Sarawak", "Selangor"];
-	const hospitals = [
-		{ name: "COLUMBIA ASIA HOSPITAL - ISKANDAR PUTERI", address: "Persiaran Afiat, Taman Kesihatan Afiat, 79250 Nusajaya, 79250 Johor", phone: "07-2339999", state: "Johor" },
-		{ name: "HOSPITAL PENAWAR SDN BHD", address: "No. 15 19, Business Center, 81700, Pasir Gudang, 81700 Johor", phone: "07-2521800", state: "Johor" },
-		{ name: "KENSINGTON GREEN SPECIALIST CENTRE SDN BHD", address: "No 2 Jln Ceria, Tmn Nusa Indah, 79100, Iskandar Puteri, 79100 Johor", phone: "07-2133899", state: "Johor" },
-		{ name: "GLENEAGLES HOSPITAL KUALA LUMPUR", address: "282 & 286, Jalan Ampang, 50450 Kuala Lumpur", phone: "03-41413333", state: "Selangor" },
-		{ name: "PANTAI HOSPITAL IPOH", address: "1, Jalan Tambun, 31400 Ipoh, Perak", phone: "05-540 5712", state: "Perak" },
-	];
+	const [allHospitals, setAllHospitals] = useState<HealthcareFacility[]>([]);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [error, setError] = useState<string>("");
 
 	const [searchQuery, setSearchQuery] = useState("");
 	const [selectedState, setSelectedState] = useState<string>("All");
 	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(10);
 
-	// Combined filtering: by selected state and search query
-	const filteredHospitals = hospitals.filter((hospital) => {
-		const matchesState = selectedState === "All" || hospital.state === selectedState;
-		const q = searchQuery.toLowerCase();
-		const matchesSearch =
-			hospital.name.toLowerCase().includes(q) ||
-			hospital.address.toLowerCase().includes(q) ||
-			hospital.phone.includes(searchQuery) ||
-			hospital.state.toLowerCase().includes(q);
-		return matchesState && matchesSearch;
-	});
+	useEffect(() => {
+		let mounted = true;
+		async function load() {
+			setIsLoading(true);
+			setError("");
+			try {
+				const res = await apiService.getHospitals();
+				if (mounted) {
+					if (res.success && res.data) {
+						setAllHospitals(res.data);
+					} else {
+						setError(res.message || "Failed to load hospitals");
+					}
+				}
+			} catch (e) {
+				if (mounted) setError(e instanceof Error ? e.message : "Failed to load hospitals");
+			} finally {
+				if (mounted) setIsLoading(false);
+			}
+		}
+		load();
+		return () => { mounted = false; };
+	}, []);
 
-	// Pagination
+	const states = useMemo(() => {
+		const set = new Set<string>();
+		allHospitals.forEach((h) => { if (h.state) set.add(h.state); });
+		return ["All", ...Array.from(set).sort()];
+	}, [allHospitals]);
+
+	const filteredHospitals = useMemo(() => {
+		const q = searchQuery.toLowerCase();
+		return allHospitals.filter((hospital) => {
+			const matchesState = selectedState === "All" || hospital.state === selectedState;
+			const matchesSearch =
+				(hospital.name || "").toLowerCase().includes(q) ||
+				(hospital.address || "").toLowerCase().includes(q) ||
+				(hospital.phone || "").includes(searchQuery) ||
+				(hospital.state || "").toLowerCase().includes(q);
+			return matchesState && matchesSearch;
+		});
+	}, [allHospitals, selectedState, searchQuery]);
+
 	const totalItems = filteredHospitals.length;
 	const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
 	const currentPage = Math.min(page, totalPages);
@@ -80,13 +104,15 @@ export default function HospitalsListPage() {
 								<div className="bg-gray-50 px-3 sm:px-4 py-2 font-medium text-sm sm:text-base">Private Hospital</div>
 								<div className="px-3 sm:px-4 py-2 bg-gray-50 border-t border-blue-100 text-xs sm:text-sm">{selectedState === "All" ? "All Malaysia" : selectedState}</div>
 								<div className="divide-y">
-									{pageItems.length > 0 ? (
+									{isLoading ? (
+										<div className="p-3 sm:p-4 text-center text-gray-500 text-sm sm:text-base">Loading hospitals...</div>
+									) : pageItems.length > 0 ? (
 										pageItems.map((h, i) => (
 											<div key={`${h.name}-${i}`} className="p-3 sm:p-4">
 												<div className="font-semibold text-sm sm:text-base leading-tight">{h.name}</div>
 												<div className="text-gray-600 text-xs sm:text-sm mt-1 leading-relaxed">{h.address}</div>
-												<div className="text-gray-600 text-xs sm:text-sm mt-2">{h.phone}</div>
-												<div className="text-gray-500 text-[11px] sm:text-xs mt-1">State: {h.state}</div>
+												<div className="text-gray-600 text-xs sm:text-sm mt-2">{h.phone || '-'}</div>
+												<div className="text-gray-500 text-[11px] sm:text-xs mt-1">State: {h.state || '-'}</div>
 											</div>
 										))
 									) : (

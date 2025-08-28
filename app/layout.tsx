@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { BottomNav } from "./(ui)/components/BottomNav";
 import { ConditionalBottomNav } from "./(ui)/components/ConditionalBottomNav";
+import { AuthProvider } from "./contexts/AuthContext";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -33,7 +34,9 @@ export default function RootLayout({
 				<div className="floating-particle"></div>
 				<div className="floating-particle"></div>
 				
-				{children}
+				<AuthProvider>
+					{children}
+				</AuthProvider>
 				
 				<ConditionalBottomNav />
 			</body>

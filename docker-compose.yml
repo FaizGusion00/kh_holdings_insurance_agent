@@ -1,0 +1,120 @@
+services:
+  # Laravel Backend
+  app:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: khi_backend
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+      - ./backend/php/local.ini:/usr/local/etc/php/conf.d/local.ini
+    networks:
+      - khh_network
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=kh_holdings_insurance
+      - DB_USERNAME=khi_users
+      - DB_PASSWORD=khh_secure_password_2024
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  # Nginx Web Server
+  webserver:
+    image: nginx:alpine
+    container_name: khh_nginx
+    restart: unless-stopped
+    ports:
+      - "8000:80"
+    volumes:
+      - ./backend:/var/www
+      - ./docker/nginx/conf.d/:/etc/nginx/conf.d/
+    networks:
+      - khh_network
+    depends_on:
+      - app
+
+  # MySQL Database
+  db:
+    image: mysql:8.0
+    container_name: khh_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: kh_holdings_insurance
+      MYSQL_ROOT_PASSWORD: khh_root_password_2024
+      MYSQL_PASSWORD: khh_secure_password_2024
+      MYSQL_USER: khi_users
+      MYSQL_ROOT_HOST: "%"
+    volumes:
+      - dbdata:/var/lib/mysql/
+      - ./docker/mysql/my.cnf:/etc/mysql/my.cnf
+    ports:
+      - "3306:3306"
+    networks:
+      - khh_network
+    command: --default-authentication-plugin=mysql_native_password
+
+  # phpMyAdmin
+  phpmyadmin:
+    image: phpmyadmin:5
+    container_name: khh_phpmyadmin
+    restart: unless-stopped
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_USER: khi_users
+      PMA_PASSWORD: khh_secure_password_2024
+      UPLOAD_LIMIT: 200M
+    ports:
+      - "8080:80"
+    depends_on:
+      - db
+    networks:
+      - khh_network
+
+  # Redis Cache
+  redis:
+    image: redis:alpine
+    container_name: khh_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    networks:
+      - khh_network
+
+  # PHP Worker for Queue Processing
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: khh_worker
+    restart: unless-stopped
+    working_dir: /var/www
+    volumes:
+      - ./backend:/var/www
+    command: php artisan queue:work --sleep=3 --tries=3 --timeout=90
+    networks:
+      - khh_network
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DB_CONNECTION=mysql
+      - DB_HOST=db
+      - DB_PORT=3306
+      - DB_DATABASE=kh_holdings_insurance
+      - DB_USERNAME=khi_users
+      - DB_PASSWORD=khh_secure_password_2024
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+networks:
+  khh_network:
+    driver: bridge
+
+volumes:
+  dbdata:
+    driver: local
