@@ -19,14 +19,26 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { apiService, Member, DashboardStats } from "../services/api";
 
+// Family Icon using the PNG image
+function FamilyIcon({ className }: { className?: string }) {
+	return (
+		<img 
+			src="/assets/add_member_logo.png" 
+			alt="Family" 
+			className={className}
+		/>
+	);
+}
+
 type MemberDisplay = { name: string; nric: string; balance: number; status: string; initial: string; color: string };
 
-function StatCard({ title, value, highlight, icon: Icon, trend }: { 
+function StatCard({ title, value, highlight, icon: Icon, trend, onAddMember }: { 
 	title: string; 
 	value: string; 
 	highlight?: boolean; 
 	icon?: React.ComponentType<{ className?: string }>;
 	trend?: { value: string; isPositive: boolean };
+	onAddMember?: () => void;
 }) {
 	return (
 		<div className={`rounded-lg sm:rounded-xl md:rounded-2xl p-2.5 sm:p-3 md:p-4 lg:p-5 transition-all duration-300 hover:shadow-lg ${
@@ -53,10 +65,20 @@ function StatCard({ title, value, highlight, icon: Icon, trend }: {
 							</span>
 						</div>
 					)}
+					{/* Add Member Button */}
+					{title === "Total Member" && onAddMember && (
+						<button
+							onClick={onAddMember}
+							className="mt-2 sm:mt-3 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-all duration-300 hover:shadow-md transform hover:-translate-y-0.5 flex items-center gap-2"
+						>
+							<Plus className="w-3 h-3 sm:w-4 sm:h-4" />
+							Add Member
+						</button>
+					)}
 				</div>
 				{title === "Total Member" && (
-					<div className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 rounded-full bg-blue-100 flex items-center justify-center">
-						<CircleHelp className="text-[#264EE4] w-3 h-3 sm:w-4 sm:h-4" />
+					<div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden">
+						<FamilyIcon className="w-full h-full object-cover" />
 					</div>
 				)}
 			</div>
@@ -231,6 +253,7 @@ export default function DashboardPage() {
 										highlight 
 										icon={Users}
 										trend={{ value: `+${dashboardData?.new_members || 0} this month`, isPositive: true }}
+										onAddMember={() => setShowAdd(true)}
 									/>
 								</StaggeredItem>
 								<StaggeredItem>
