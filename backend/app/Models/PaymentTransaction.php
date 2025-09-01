@@ -4,7 +4,6 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class PaymentTransaction extends Model
 {
@@ -13,54 +12,46 @@ class PaymentTransaction extends Model
     protected $fillable = [
         'member_id',
         'policy_id',
+        'transaction_id',
         'amount',
-        'payment_type',
         'payment_method',
+        'payment_date',
         'status',
-        'transaction_date',
-        'description',
         'reference_number',
-        'gateway_reference',
-        'gateway_response',
-        'processed_at',
-        'failed_at',
-        'failure_reason',
+        'notes',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
-        'transaction_date' => 'datetime',
-        'processed_at' => 'datetime',
-        'failed_at' => 'datetime',
-        'gateway_response' => 'array',
+        'payment_date' => 'date',
     ];
 
     /**
-     * Get the policy that owns the payment transaction.
+     * Get the member who made this payment.
      */
-    public function policy(): BelongsTo
-    {
-        return $this->belongsTo(MemberPolicy::class);
-    }
-
-    /**
-     * Get the member that owns the payment transaction.
-     */
-    public function member(): BelongsTo
+    public function member()
     {
         return $this->belongsTo(Member::class);
     }
 
     /**
-     * Scope for completed transactions.
+     * Get the policy this payment is for.
      */
-    public function scopeCompleted($query)
+    public function policy()
     {
-        return $query->where('status', 'completed');
+        return $this->belongsTo(MemberPolicy::class);
     }
 
     /**
-     * Scope for pending transactions.
+     * Scope to filter by status.
+     */
+    public function scopeByStatus($query, $status)
+    {
+        return $query->where('status', $status);
+    }
+
+    /**
+     * Scope to filter pending payments.
      */
     public function scopePending($query)
     {
@@ -68,7 +59,15 @@ class PaymentTransaction extends Model
     }
 
     /**
-     * Scope for failed transactions.
+     * Scope to filter completed payments.
+     */
+    public function scopeCompleted($query)
+    {
+        return $query->where('status', 'completed');
+    }
+
+    /**
+     * Scope to filter failed payments.
      */
     public function scopeFailed($query)
     {
@@ -76,25 +75,9 @@ class PaymentTransaction extends Model
     }
 
     /**
-     * Scope for transactions by type.
-     */
-    public function scopeByType($query, $type)
-    {
-        return $query->where('payment_type', $type);
-    }
-
-    /**
-     * Scope for transactions by date range.
-     */
-    public function scopeByDateRange($query, $startDate, $endDate)
-    {
-        return $query->whereBetween('transaction_date', [$startDate, $endDate]);
-    }
-
-    /**
      * Get formatted amount.
      */
-    public function getFormattedAmountAttribute(): string
+    public function getFormattedAmountAttribute()
     {
         return 'RM ' . number_format($this->amount, 2);
     }
@@ -102,7 +85,7 @@ class PaymentTransaction extends Model
     /**
      * Get status badge class.
      */
-    public function getStatusBadgeClassAttribute(): string
+    public function getStatusBadgeClassAttribute()
     {
         return match($this->status) {
             'completed' => 'bg-green-100 text-green-800',
@@ -110,19 +93,6 @@ class PaymentTransaction extends Model
             'failed' => 'bg-red-100 text-red-800',
             'cancelled' => 'bg-gray-100 text-gray-800',
             default => 'bg-gray-100 text-gray-800',
-        };
-    }
-
-    /**
-     * Get payment method icon.
-     */
-    public function getPaymentMethodIconAttribute(): string
-    {
-        return match($this->payment_method) {
-            'mandate' => 'credit-card',
-            'manual' => 'hand',
-            'card' => 'credit-card',
-            default => 'credit-card',
         };
     }
 }

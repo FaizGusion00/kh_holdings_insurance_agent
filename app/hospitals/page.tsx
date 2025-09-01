@@ -1,177 +1,131 @@
 "use client";
 
-import { motion } from "framer-motion";
 import Image from "next/image";
 import Link from "next/link";
-import { PageTransition, FadeIn, StaggeredContainer, StaggeredItem } from "../(ui)/components/PageTransition";
-import { Phone, Building2, Stethoscope } from "lucide-react";
+import { Phone, Building2, Stethoscope, ArrowRight } from "lucide-react";
+import { PageTransition, StaggeredContainer, StaggeredItem, FadeIn } from "../(ui)/components/PageTransition";
 
 export default function HospitalsPage() {
 	return (
 		<PageTransition>
-			<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
-				<div className="w-full max-w-4xl xl:max-w-6xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
-					<div className="flex flex-col gap-4 sm:gap-6 md:gap-8 lg:gap-10">
+			<div className="min-h-screen bg-gradient-to-br from-blue-50 via-white to-emerald-50">
+				<div className="container mx-auto px-4 py-8 md:py-12 flex items-center justify-center">
+					<div className="w-full max-w-4xl">
 						{/* Header Section */}
-						<StaggeredContainer className="flex flex-col items-center text-center gap-3 sm:gap-4 md:gap-6">
+						<StaggeredContainer>
 							<StaggeredItem>
-								<motion.div
-									initial={{ scale: 0.8, opacity: 0 }}
-									animate={{ scale: 1, opacity: 1 }}
-									transition={{ duration: 0.6, ease: "easeOut" }}
-									className="relative"
-								>
-									<Image 
-										src="/assets/emas_logo.png" 
-										alt="eMAS" 
-										width={220} 
-										height={100} 
-										className="w-28 h-auto sm:w-32 md:w-44 lg:w-56 xl:w-64 drop-shadow-lg" 
-									/>
-									<motion.div
-										animate={{ 
-											scale: [1, 1.05, 1],
-											opacity: [0.3, 0.6, 0.3]
-										}}
-										transition={{ 
-											duration: 3, 
-											repeat: Infinity, 
-											ease: "easeInOut" 
-										}}
-										className="absolute inset-0 w-full h-full bg-blue-400/20 rounded-full blur-xl -z-10"
-									/>
-								</motion.div>
-							</StaggeredItem>
-							
-							<StaggeredItem>
-								<FadeIn delay={0.3}>
-									<h2 className="text-lg sm:text-xl md:text-2xl lg:text-3xl font-bold text-gray-800 leading-tight px-4">
-										List of All Panel Hospitals & Clinics{" "}
-										<span className="bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-											thru eMAS
-										</span>
-									</h2>
-								</FadeIn>
-							</StaggeredItem>
-							
-							<StaggeredItem>
-								<motion.div 
-									initial={{ opacity: 0, y: 20 }}
-									animate={{ opacity: 1, y: 0 }}
-									transition={{ delay: 0.5, duration: 0.6 }}
-									className="flex items-center gap-2 text-xs sm:text-sm text-gray-600 bg-blue-50 px-3 py-2 rounded-full border border-blue-200"
-								>
-									<Phone size={14} className="text-blue-600" />
-									<span className="font-medium">eMAS Hotline:</span>
-									<span className="text-blue-700 font-semibold">03 9213 0103</span>
-								</motion.div>
-							</StaggeredItem>
-						</StaggeredContainer>
-						
-						{/* Cards Grid */}
-						<StaggeredContainer className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 md:gap-6 w-full max-w-3xl xl:max-w-4xl mt-2 sm:mt-4">
-							{/* Panel Hospitals Card */}
-							<StaggeredItem>
-								<Link 
-									href="/hospitals/list" 
-									className="block"
-								>
-									<motion.div 
-										className="rounded-xl border border-blue-100 bg-white p-4 sm:p-6 md:p-8 lg:p-10 hover:shadow-xl transition-all duration-300 hover:border-blue-300 group relative overflow-hidden"
-										whileHover={{ 
-											scale: 1.02,
-											y: -5
-										}}
-										transition={{ type: "spring", stiffness: 300, damping: 20 }}
-									>
-										{/* Background decoration */}
-										<motion.div
-											className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-blue-100/30 to-transparent rounded-full -translate-y-10 translate-x-10"
-											animate={{ 
-												scale: [1, 1.2, 1],
-												opacity: [0.3, 0.6, 0.3]
-											}}
-											transition={{ 
-												duration: 4, 
-												repeat: Infinity, 
-												ease: "easeInOut" 
-											}}
-										/>
-										
-										<div className="text-center relative z-10">
-											<motion.div 
-												className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 sm:h-14 lg:w-16 lg:h-16 mx-auto mb-2 sm:mb-3 md:mb-4 flex items-center justify-center text-blue-600 group-hover:text-blue-700 transition-colors duration-300"
-												whileHover={{ rotate: 5, scale: 1.1 }}
-												transition={{ type: "spring", stiffness: 300, damping: 20 }}
-											>
-												<Building2 size={32} className="sm:w-[36px] sm:h-[36px] md:w-[40px] md:h-[40px] lg:w-[44px] lg:h-[44px]" />
-											</motion.div>
-											<div className="font-bold text-gray-800 text-sm sm:text-base md:text-lg lg:text-xl group-hover:text-blue-700 transition-colors duration-300">
-												Panel Hospitals
-											</div>
-											<div className="text-gray-500 text-xs sm:text-sm mt-1 group-hover:text-gray-600 transition-colors duration-300">
-												More than 250 hospitals nationwide.
-											</div>
-											<motion.div
-												className="mt-3 h-0.5 bg-gradient-to-r from-blue-500 to-emerald-500 rounded-full"
-												initial={{ width: 0 }}
-												whileHover={{ width: "100%" }}
-												transition={{ duration: 0.3 }}
+								<div className="bg-white rounded-2xl shadow-xl border border-gray-100 p-6 md:p-8 lg:p-10">
+									<div className="text-center mb-8 md:mb-10">
+										<div className="mb-6">
+											<Image 
+												src="/assets/emas_logo.png" 
+												alt="eMAS" 
+												width={200} 
+												height={80} 
+												className="mx-auto drop-shadow-md" 
 											/>
 										</div>
-									</motion.div>
-								</Link>
-							</StaggeredItem>
-							
-							{/* Panel Clinics Card */}
-							<StaggeredItem>
-								<Link href="/clinics" className="block">
-									<motion.div 
-										className="rounded-xl border border-blue-100 bg-white p-4 sm:p-6 md:p-8 lg:p-10 hover:shadow-xl transition-all duration-300 hover:border-blue-300 group relative overflow-hidden"
-										whileHover={{ 
-											scale: 1.02,
-											y: -5
-										}}
-										transition={{ type: "spring", stiffness: 300, damping: 20 }}
-									>
-										{/* Background decoration */}
-										<motion.div
-											className="absolute top-0 right-0 w-20 h-20 bg-gradient-to-br from-emerald-100/30 to-transparent rounded-full -translate-y-10 translate-x-10"
-											animate={{ 
-												scale: [1, 1.2, 1],
-												opacity: [0.3, 0.6, 0.3]
-											}}
-											transition={{ 
-												duration: 4, 
-												repeat: Infinity, 
-												ease: "easeInOut",
-												delay: 1
-											}}
-										/>
 										
-										<div className="text-center relative z-10">
-											<motion.div 
-												className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 sm:h-14 lg:w-16 lg:h-16 mx-auto mb-2 sm:mb-3 md:mb-4 flex items-center justify-center text-emerald-600 group-hover:text-emerald-700 transition-colors duration-300"
-												whileHover={{ rotate: -5, scale: 1.1 }}
-												transition={{ type: "spring", stiffness: 300, damping: 20 }}
-											>
-												<Stethoscope size={32} className="sm:w-[36px] sm:h-[36px] md:w-[40px] md:h-[40px] lg:w-[44px] lg:h-[44px]" />
-											</motion.div>
-											<div className="font-bold text-gray-800 text-sm sm:text-base md:text-lg lg:text-xl group-hover:text-emerald-700 transition-colors duration-300">
-												Panel Clinics
-											</div>
-											<div className="text-gray-500 text-xs sm:text-sm mt-1 group-hover:text-gray-600 transition-colors duration-300">
-												More than 4,000 clinics nationwide.
-											</div>
-											<motion.div
-												className="mt-3 h-0.5 bg-gradient-to-r from-emerald-500 to-blue-500 rounded-full"
-												initial={{ width: 0 }}
-												whileHover={{ width: "100%" }}
-												transition={{ duration: 0.3 }}
-											/>
+										<h1 className="text-2xl md:text-3xl lg:text-4xl font-bold text-gray-800 mb-4 leading-tight">
+											List of All Panel Hospitals & Clinics{" "}
+											<span className="bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
+												thru eMAS
+											</span>
+										</h1>
+										
+										<div className="inline-flex items-center gap-2 md:gap-3 text-gray-700 bg-blue-50 px-4 md:px-6 py-2 md:py-3 rounded-full border border-blue-200">
+											<Phone size={16} className="text-blue-600" />
+											<span className="font-medium text-sm md:text-base">eMAS Hotline:</span>
+											<span className="text-blue-700 font-bold text-base md:text-lg">03 9213 0103</span>
 										</div>
-									</motion.div>
-								</Link>
+									</div>
+									
+									{/* Cards Grid - Compact and Centered */}
+									<div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+										{/* Panel Hospitals Card */}
+										<StaggeredItem>
+											<Link href="/hospitals/list" className="block group">
+												<div className="bg-white rounded-xl border-2 border-blue-200 p-6 md:p-8 hover:shadow-2xl hover:border-blue-400 hover:-translate-y-1 transition-all duration-300 h-full relative overflow-hidden">
+													{/* Background Pattern */}
+													<div className="absolute inset-0 bg-gradient-to-br from-blue-50/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+													
+													<div className="relative z-10 text-center">
+														<div className="w-16 h-16 md:w-20 md:h-20 mx-auto mb-4 md:mb-6 flex items-center justify-center bg-blue-50 rounded-xl text-blue-600 group-hover:bg-blue-100 group-hover:scale-110 transition-all duration-300">
+															<Building2 size={32} className="md:w-10 md:h-10" />
+														</div>
+														<h3 className="text-xl md:text-2xl font-bold text-gray-800 mb-2 md:mb-3 group-hover:text-blue-700 transition-colors duration-300">
+															Panel Hospitals
+														</h3>
+														<p className="text-gray-600 text-sm md:text-base group-hover:text-gray-700 transition-colors duration-300 mb-8 md:mb-10">
+															More than 250 hospitals nationwide.
+														</p>
+														
+														{/* Interactive Button */}
+														<div className="flex items-center justify-center gap-2 text-blue-600 group-hover:text-blue-700 transition-colors duration-300">
+															<span className="text-sm font-medium">View Hospitals</span>
+															<ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-300" />
+														</div>
+														
+														{/* Enhanced Bottom Border Animation */}
+														<div className="absolute bottom-2 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600 rounded-b-xl transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left shadow-lg"></div>
+													</div>
+												</div>
+											</Link>
+										</StaggeredItem>
+										
+										{/* Panel Clinics Card */}
+										<StaggeredItem>
+											<Link href="/clinics" className="block group">
+												<div className="bg-white rounded-xl border-2 border-emerald-200 p-6 md:p-8 hover:shadow-2xl hover:border-emerald-400 hover:-translate-y-1 transition-all duration-300 h-full relative overflow-hidden">
+													{/* Background Pattern */}
+													<div className="absolute inset-0 bg-gradient-to-br from-emerald-50/30 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+													
+													<div className="relative z-10 text-center">
+														<div className="w-16 h-16 md:w-20 md:h-20 mx-auto mb-4 md:mb-6 flex items-center justify-center bg-emerald-50 rounded-xl text-emerald-600 group-hover:bg-emerald-100 group-hover:scale-110 transition-all duration-300">
+															<Stethoscope size={32} className="md:w-10 md:h-10" />
+														</div>
+														<h3 className="text-xl md:text-2xl font-bold text-gray-800 mb-2 md:mb-3 group-hover:text-emerald-700 transition-colors duration-300">
+															Panel Clinics
+														</h3>
+														<p className="text-gray-600 text-sm md:text-base group-hover:text-gray-700 transition-colors duration-300 mb-8 md:mb-10">
+															More than 4,000 clinics nationwide.
+														</p>
+														
+														{/* Interactive Button */}
+														<div className="flex items-center justify-center gap-2 text-emerald-600 group-hover:text-emerald-700 transition-colors duration-300">
+															<span className="text-sm font-medium">View Clinics</span>
+															<ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-300" />
+														</div>
+														
+														{/* Enhanced Bottom Border Animation */}
+														<div className="absolute bottom-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-600 rounded-b-xl transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left shadow-lg"></div>
+													</div>
+												</div>
+											</Link>
+										</StaggeredItem>
+									</div>
+									
+									{/* Additional Info Section */}
+									<FadeIn delay={0.4}>
+										<div className="mt-6 md:mt-8 pt-6 md:pt-8 border-t border-gray-100">
+											<div className="text-center">
+												<p className="text-gray-600 text-sm md:text-base">
+													Access our comprehensive network of healthcare providers across Malaysia
+												</p>
+												<div className="mt-3 flex items-center justify-center gap-4 text-xs text-gray-500">
+													<span className="flex items-center gap-1">
+														<div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+														Hospitals
+													</span>
+													<span className="flex items-center gap-1">
+														<div className="w-2 h-2 bg-emerald-500 rounded-full"></div>
+														Clinics
+													</span>
+												</div>
+											</div>
+										</div>
+									</FadeIn>
+								</div>
 							</StaggeredItem>
 						</StaggeredContainer>
 					</div>

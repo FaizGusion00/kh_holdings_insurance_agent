@@ -11,19 +11,7 @@ return new class extends Migration
      */
     public function up(): void
     {
-        Schema::create('healthcare_facilities', function (Blueprint $table) {
-            $table->id();
-            $table->string('name');
-            $table->enum('type', ['hospital', 'clinic']);
-            $table->text('address')->nullable();
-            $table->string('city', 100);
-            $table->string('state', 100);
-            $table->string('phone', 20)->nullable();
-            $table->string('email')->nullable();
-            $table->boolean('is_panel_facility')->default(false);
-            $table->enum('status', ['active', 'inactive'])->default('active');
-            $table->timestamps();
-        });
+        Schema::dropIfExists('healthcare_facilities');
     }
 
     /**
@@ -31,6 +19,18 @@ return new class extends Migration
      */
     public function down(): void
     {
-        Schema::dropIfExists('healthcare_facilities');
+        Schema::create('healthcare_facilities', function (Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('type');
+            $table->text('address')->nullable();
+            $table->string('city')->nullable();
+            $table->string('state')->nullable();
+            $table->string('phone')->nullable();
+            $table->string('email')->nullable();
+            $table->boolean('is_panel_facility')->default(false);
+            $table->string('status')->default('active');
+            $table->timestamps();
+        });
     }
 };

@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Hospital;
+use App\Models\Clinic;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 
 class HealthcareController extends Controller
 {
@@ -13,10 +14,37 @@ class HealthcareController extends Controller
      */
     public function index()
     {
-        $facilities = DB::table('healthcare_facilities')
-            ->select('*')
-            ->orderBy('name')
-            ->get();
+        $hospitals = Hospital::where('is_active', true)->orderBy('name')->get();
+        $clinics = Clinic::where('is_active', true)->orderBy('name')->get();
+        
+        $facilities = $hospitals->map(function($hospital) {
+            return [
+                'id' => $hospital->id,
+                'name' => $hospital->name,
+                'type' => 'hospital',
+                'address' => $hospital->address,
+                'city' => $hospital->city,
+                'state' => $hospital->state,
+                'phone' => $hospital->phone,
+                'email' => $hospital->email,
+                'specialties' => $hospital->specialties,
+                'status' => $hospital->is_active ? 'active' : 'inactive'
+            ];
+        })->concat($clinics->map(function($clinic) {
+            return [
+                'id' => $clinic->id,
+                'name' => $clinic->name,
+                'type' => 'clinic',
+                'address' => $clinic->address,
+                'city' => $clinic->city,
+                'state' => $clinic->state,
+                'phone' => $clinic->phone,
+                'email' => $clinic->email,
+                'specialties' => $clinic->specialties,
+                'operating_hours' => $clinic->operating_hours,
+                'status' => $clinic->is_active ? 'active' : 'inactive'
+            ];
+        }));
 
         return response()->json([
             'success' => true,
@@ -29,11 +57,23 @@ class HealthcareController extends Controller
      */
     public function hospitals()
     {
-        $hospitals = DB::table('healthcare_facilities')
-            ->where('type', 'hospital')
-            ->where('status', 'active')
+        $hospitals = Hospital::where('is_active', true)
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function($hospital) {
+                return [
+                    'id' => $hospital->id,
+                    'name' => $hospital->name,
+                    'type' => 'hospital',
+                    'address' => $hospital->address,
+                    'city' => $hospital->city,
+                    'state' => $hospital->state,
+                    'phone' => $hospital->phone,
+                    'email' => $hospital->email,
+                    'specialties' => $hospital->specialties,
+                    'status' => $hospital->is_active ? 'active' : 'inactive'
+                ];
+            });
 
         return response()->json([
             'success' => true,
@@ -46,11 +86,24 @@ class HealthcareController extends Controller
      */
     public function clinics()
     {
-        $clinics = DB::table('healthcare_facilities')
-            ->where('type', 'clinic')
-            ->where('status', 'active')
+        $clinics = Clinic::where('is_active', true)
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function($clinic) {
+                return [
+                    'id' => $clinic->id,
+                    'name' => $clinic->name,
+                    'type' => 'clinic',
+                    'address' => $clinic->address,
+                    'city' => $clinic->city,
+                    'state' => $clinic->state,
+                    'phone' => $clinic->phone,
+                    'email' => $clinic->email,
+                    'specialties' => $clinic->specialties,
+                    'operating_hours' => $clinic->operating_hours,
+                    'status' => $clinic->is_active ? 'active' : 'inactive'
+                ];
+            });
 
         return response()->json([
             'success' => true,
@@ -67,20 +120,58 @@ class HealthcareController extends Controller
         $type = $request->input('type');
         $state = $request->input('state');
 
-        $facilities = DB::table('healthcare_facilities')
+        $hospitals = Hospital::where('is_active', true)
             ->when($query, function($q) use ($query) {
                 return $q->where('name', 'like', "%{$query}%")
                          ->orWhere('city', 'like', "%{$query}%");
             })
-            ->when($type, function($q) use ($type) {
-                return $q->where('type', $type);
+            ->when($state, function($q) use ($state) {
+                return $q->where('state', $state);
+            })
+            ->orderBy('name')
+            ->get()
+            ->map(function($hospital) {
+                return [
+                    'id' => $hospital->id,
+                    'name' => $hospital->name,
+                    'type' => 'hospital',
+                    'address' => $hospital->address,
+                    'city' => $hospital->city,
+                    'state' => $hospital->state,
+                    'phone' => $hospital->phone,
+                    'email' => $hospital->email,
+                    'specialties' => $hospital->specialties,
+                    'status' => $hospital->is_active ? 'active' : 'inactive'
+                ];
+            });
+
+        $clinics = Clinic::where('is_active', true)
+            ->when($query, function($q) use ($query) {
+                return $q->where('name', 'like', "%{$query}%")
+                         ->orWhere('city', 'like', "%{$query}%");
             })
             ->when($state, function($q) use ($state) {
-                return $q->where('state', $type);
+                return $q->where('state', $state);
             })
-            ->where('status', 'active')
             ->orderBy('name')
-            ->get();
+            ->get()
+            ->map(function($clinic) {
+                return [
+                    'id' => $clinic->id,
+                    'name' => $clinic->name,
+                    'type' => 'clinic',
+                    'address' => $clinic->address,
+                    'city' => $clinic->city,
+                    'state' => $clinic->state,
+                    'phone' => $clinic->phone,
+                    'email' => $clinic->email,
+                    'specialties' => $clinic->specialties,
+                    'operating_hours' => $clinic->operating_hours,
+                    'status' => $clinic->is_active ? 'active' : 'inactive'
+                ];
+            });
+
+        $facilities = $hospitals->concat($clinics);
 
         return response()->json([
             'success' => true,
@@ -93,10 +184,44 @@ class HealthcareController extends Controller
      */
     public function show(string $id)
     {
-        $facility = DB::table('healthcare_facilities')
-            ->where('id', $id)
-            ->where('status', 'active')
-            ->first();
+        $facility = null;
+        
+        // Try to find in hospitals first
+        $hospital = Hospital::where('id', $id)->where('is_active', true)->first();
+        if ($hospital) {
+            $facility = [
+                'id' => $hospital->id,
+                'name' => $hospital->name,
+                'type' => 'hospital',
+                'address' => $hospital->address,
+                'city' => $hospital->city,
+                'state' => $hospital->state,
+                'phone' => $hospital->phone,
+                'email' => $hospital->email,
+                'specialties' => $hospital->specialties,
+                'status' => $hospital->is_active ? 'active' : 'inactive'
+            ];
+        }
+        
+        // If not found in hospitals, try clinics
+        if (!$facility) {
+            $clinic = Clinic::where('id', $id)->where('is_active', true)->first();
+            if ($clinic) {
+                $facility = [
+                    'id' => $clinic->id,
+                    'name' => $clinic->name,
+                    'type' => 'clinic',
+                    'address' => $clinic->address,
+                    'city' => $clinic->city,
+                    'state' => $clinic->state,
+                    'phone' => $clinic->phone,
+                    'email' => $clinic->email,
+                    'specialties' => $clinic->specialties,
+                    'operating_hours' => $clinic->operating_hours,
+                    'status' => $clinic->is_active ? 'active' : 'inactive'
+                ];
+            }
+        }
 
         if (!$facility) {
             return response()->json([

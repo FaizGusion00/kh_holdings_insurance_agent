@@ -49,6 +49,7 @@ export default function ProfilePage() {
     const [showUpdateProfileModal, setShowUpdateProfileModal] = useState(false);
     const [showChangePhoneModal, setShowChangePhoneModal] = useState(false);
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+    const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
     const [phoneChangeStep, setPhoneChangeStep] = useState<'initial' | 'tac-verification' | 'new-phone' | 'new-tac-verification' | 'success'>('initial');
     const [tacCode, setTacCode] = useState('');
     const [newPhoneNumber, setNewPhoneNumber] = useState('');
@@ -1374,18 +1375,73 @@ export default function ProfilePage() {
                 )}
             </AnimatePresence>
 
+            <AnimatePresence>
+                {showLogoutConfirmModal && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                                <h2 className="text-xl font-bold text-gray-800">Confirm Logout</h2>
+                                <button
+                                    onClick={() => setShowLogoutConfirmModal(false)}
+                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                >
+                                    <X className="w-5 h-5 text-gray-600" />
+                                </button>
+                            </div>
+                            
+                            <div className="p-6 space-y-4">
+                                <p className="text-gray-600">Are you sure you want to log out?</p>
+                                <div className="flex gap-3 justify-end">
+                                    <button
+                                        onClick={() => setShowLogoutConfirmModal(false)}
+                                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                                    >
+                                        Logout
+                                    </button>
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <PageTransition>
                 <div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
                     <div className="w-full max-w-6xl xl:max-w-7xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
-                        <div className="absolute top-2 sm:top-3 md:top-6 right-2 sm:right-3 md:right-6">
+                        {/* Enhanced Logout Button - Moved Higher and Better UI/UX */}
+                        <motion.div 
+                            initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            transition={{ duration: 0.5, delay: 0.2 }}
+                            className="absolute top-2 sm:top-3 md:top-4 right-2 sm:right-3 md:right-6 z-[100]"
+                        >
                             <button
-                                onClick={handleLogout}
-                                className="flex items-center gap-2 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg border border-red-200 transition-colors duration-200"
+                                onClick={() => setShowLogoutConfirmModal(true)}
+                                className="group flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl border border-red-400 hover:border-red-500 transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform"
                             >
-                                <LogOut size={16} />
-                                <span className="text-sm font-medium">Logout</span>
+                                <LogOut size={20} className="group-hover:rotate-12 transition-transform duration-300" />
+                                <span className="text-base font-semibold tracking-wide">Logout</span>
+                                {/* Enhanced hover effect indicator */}
+                                <div className="absolute inset-0 bg-white/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
                             </button>
-                        </div>
+                        </motion.div>
 
                         <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[300px_1fr] xl:grid-cols-[320px_1fr] gap-4 sm:gap-6 md:gap-8">
                             <StaggeredContainer className="space-y-4">

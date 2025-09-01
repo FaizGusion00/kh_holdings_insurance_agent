@@ -204,19 +204,98 @@ class ApiService {
     return headers;
   }
 
+  // Enhanced response handler with better error categorization
   private async handleResponse<T>(response: Response): Promise<ApiResponse<T>> {
-    if (!response.ok) {
-      if (response.status === 401) {
-        // Unauthorized - clear token and redirect to login
-        this.clearToken();
-        window.location.href = '/login';
-        throw new Error('Unauthorized');
+    try {
+      const data = await response.json();
+      
+      if (response.ok) {
+        return {
+          success: true,
+          data: data.data || data,
+          message: data.message
+        };
       }
-      const errorData = await response.json().catch(() => ({}));
-      return errorData; // Let caller surface message/errors
+      
+      // Handle different HTTP error statuses
+      switch (response.status) {
+        case 400:
+          return {
+            success: false,
+            message: 'Invalid request. Please check your input.',
+            errors: data.errors || { general: [data.message || 'Bad request'] }
+          };
+        case 401:
+          // Clear token on authentication failure
+          this.clearToken();
+          return {
+            success: false,
+            message: 'Authentication failed. Please login again.',
+            errors: { authentication: ['Invalid credentials or expired session'] }
+          };
+        case 403:
+          return {
+            success: false,
+            message: 'Access denied. You do not have permission to perform this action.',
+            errors: { authorization: ['Insufficient permissions'] }
+          };
+        case 404:
+          return {
+            success: false,
+            message: 'Resource not found.',
+            errors: { general: ['The requested resource was not found'] }
+          };
+        case 422:
+          return {
+            success: false,
+            message: 'Validation failed. Please check your input.',
+            errors: data.errors || { validation: [data.message || 'Validation error'] }
+          };
+        case 429:
+          return {
+            success: false,
+            message: 'Too many requests. Please wait before trying again.',
+            errors: { rate_limit: ['Rate limit exceeded'] }
+          };
+        case 500:
+          return {
+            success: false,
+            message: 'Server error. Please try again later.',
+            errors: { server: ['Internal server error'] }
+          };
+        default:
+          return {
+            success: false,
+            message: data.message || `Request failed with status ${response.status}`,
+            errors: { general: [data.message || 'Unknown error occurred'] }
+          };
+      }
+    } catch (error) {
+      console.error('Error parsing response:', error);
+      return {
+        success: false,
+        message: 'Failed to parse server response.',
+        errors: { general: ['Response parsing error'] }
+      };
     }
+  }
 
-    return await response.json();
+  // Enhanced fetch wrapper with timeout
+  private async fetchWithTimeout(url: string, options: RequestInit, timeout = 30000): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeout);
+    
+    try {
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
+    }
   }
 
   setToken(token: string) {

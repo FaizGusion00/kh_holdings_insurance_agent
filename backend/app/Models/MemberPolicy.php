@@ -9,38 +9,29 @@ class MemberPolicy extends Model
 {
     use HasFactory;
 
-    /**
-     * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
-     */
     protected $fillable = [
         'member_id',
         'product_id',
         'policy_number',
         'start_date',
         'end_date',
-        'status',
-        'monthly_premium',
+        'premium_amount',
+        'payment_frequency',
         'total_paid',
         'next_payment_date',
+        'status',
+        'coverage_details',
+        'terms_conditions',
     ];
 
-    /**
-     * The attributes that should be cast.
-     *
-     * @return array<string, string>
-     */
-    protected function casts(): array
-    {
-        return [
-            'start_date' => 'date',
-            'end_date' => 'date',
-            'next_payment_date' => 'date',
-            'monthly_premium' => 'decimal:2',
-            'total_paid' => 'decimal:2',
-        ];
-    }
+    protected $casts = [
+        'start_date' => 'date',
+        'end_date' => 'date',
+        'premium_amount' => 'decimal:2',
+        'total_paid' => 'decimal:2',
+        'next_payment_date' => 'date',
+        'coverage_details' => 'array',
+    ];
 
     /**
      * Get the member who owns this policy.
@@ -51,11 +42,11 @@ class MemberPolicy extends Model
     }
 
     /**
-     * Get the insurance product.
+     * Get the insurance product for this policy.
      */
     public function product()
     {
-        return $this->belongsTo(InsuranceProduct::class, 'product_id');
+        return $this->belongsTo(InsuranceProduct::class);
     }
 
     /**
@@ -63,7 +54,7 @@ class MemberPolicy extends Model
      */
     public function paymentTransactions()
     {
-        return $this->hasMany(PaymentTransaction::class, 'policy_id');
+        return $this->hasMany(PaymentTransaction::class);
     }
 
     /**
@@ -71,7 +62,7 @@ class MemberPolicy extends Model
      */
     public function commissions()
     {
-        return $this->hasMany(Commission::class, 'policy_id');
+        return $this->hasMany(Commission::class);
     }
 
     /**
@@ -87,7 +78,15 @@ class MemberPolicy extends Model
      */
     public function scopeExpired($query)
     {
-        return $query->where('status', 'expired');
+        return $query->where('end_date', '<', now());
+    }
+
+    /**
+     * Scope to filter policies by payment frequency.
+     */
+    public function scopeByPaymentFrequency($query, $frequency)
+    {
+        return $query->where('payment_frequency', $frequency);
     }
 
     /**
@@ -95,49 +94,50 @@ class MemberPolicy extends Model
      */
     public function isActive()
     {
-        return $this->status === 'active' && 
-               $this->start_date <= now() && 
-               $this->end_date >= now();
+        return $this->status === 'active' && $this->end_date > now();
     }
 
     /**
-     * Check if payment is due.
+     * Check if policy is expired.
      */
-    public function isPaymentDue()
+    public function isExpired()
     {
-        return $this->next_payment_date <= now();
+        return $this->end_date < now();
     }
 
     /**
-     * Generate unique policy number.
+     * Get remaining premium amount.
      */
-    public static function generatePolicyNumber()
+    public function getRemainingPremiumAttribute()
     {
-        do {
-            $number = 'POL' . date('Y') . str_pad(mt_rand(1, 999999), 6, '0', STR_PAD_LEFT);
-        } while (self::where('policy_number', $number)->exists());
-
-        return $number;
+        return $this->premium_amount - $this->total_paid;
     }
 
     /**
-     * Calculate next payment date based on frequency.
+     * Get policy duration in days.
      */
-    public function calculateNextPaymentDate()
+    public function getDurationDaysAttribute()
     {
-        $frequency = $this->product->payment_frequency;
+        return $this->start_date->diffInDays($this->end_date);
+    }
+
+    /**
+     * Get next payment due status.
+     */
+    public function getNextPaymentDueAttribute()
+    {
+        if (!$this->next_payment_date) {
+            return null;
+        }
+
+        $daysUntilDue = now()->diffInDays($this->next_payment_date, false);
         
-        switch ($frequency) {
-            case 'monthly':
-                return $this->next_payment_date->addMonth();
-            case 'quarterly':
-                return $this->next_payment_date->addMonths(3);
-            case 'semi_annually':
-                return $this->next_payment_date->addMonths(6);
-            case 'annually':
-                return $this->next_payment_date->addYear();
-            default:
-                return $this->next_payment_date->addMonth();
+        if ($daysUntilDue < 0) {
+            return 'overdue';
+        } elseif ($daysUntilDue <= 7) {
+            return 'due_soon';
+        } else {
+            return 'up_to_date';
         }
     }
 }
