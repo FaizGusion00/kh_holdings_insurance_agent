@@ -337,14 +337,12 @@ class DashboardController extends Controller
                 ->count();
             
             // Payment data
-            // Use direct member relationship to scope by the authenticated user's members
-            $payments = PaymentTransaction::whereHas('member', function($query) use ($user) {
-                $query->where('user_id', $user->id);
-            })
-            ->whereMonth('transaction_date', $month)
-            ->whereYear('transaction_date', $year)
-            ->where('status', 'completed')
-            ->sum('amount');
+            // Use gateway payments instead of legacy payment_transactions
+            $payments = \App\Models\GatewayPayment::where('agent_id', $user->id)
+                ->whereMonth('completed_at', $month)
+                ->whereYear('completed_at', $year)
+                ->where('status', 'completed')
+                ->sum('amount');
 
             // Medical case counts (approved)
             $hospitalCases = MedicalCase::where('user_id', $user->id)

@@ -35,4 +35,11 @@ return [
         ],
     ],
 
+    'curlec' => [
+        'key_id' => env('CURLEC_KEY_ID'),
+        'key_secret' => env('CURLEC_KEY_SECRET'),
+        'webhook_secret' => env('CURLEC_WEBHOOK_SECRET'),
+        'environment' => env('CURLEC_ENVIRONMENT', 'test'),
+    ],
+
 ];

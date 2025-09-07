@@ -141,7 +141,8 @@ export default function DashboardPage() {
 	const { user } = useAuth();
 	const [showAdd, setShowAdd] = useState(false);
 	const [showDetails, setShowDetails] = useState<null | MemberProfile>(null);
-	const [currentDateTime, setCurrentDateTime] = useState(new Date());
+	const [currentDateTime, setCurrentDateTime] = useState<Date | null>(null);
+	const [isMounted, setIsMounted] = useState(false);
 	const [dashboardData, setDashboardData] = useState<DashboardStats | null>(null);
 	const [members, setMembers] = useState<Member[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
@@ -172,8 +173,10 @@ export default function DashboardPage() {
 		fetchDashboardData();
 	}, []);
 	
-	// Update date and time every second
+	// Update date and time every second (client-only) to avoid hydration mismatch
 	useEffect(() => {
+		setIsMounted(true);
+		setCurrentDateTime(new Date());
 		const timer = setInterval(() => {
 			setCurrentDateTime(new Date());
 		}, 1000);
@@ -210,21 +213,21 @@ export default function DashboardPage() {
 								
 								{/* Date and Time Row */}
 								<div className="flex items-center justify-center sm:justify-start gap-2 sm:gap-3 md:gap-4 mb-2 sm:mb-3">
-									<span className="text-gray-600 text-xs sm:text-sm font-medium">
-										{currentDateTime.toLocaleDateString('en-US', { 
+									<span className="text-gray-600 text-xs sm:text-sm font-medium" suppressHydrationWarning>
+										{isMounted && currentDateTime ? currentDateTime.toLocaleDateString('en-US', { 
 											weekday: 'long', 
 											year: 'numeric', 
 											month: 'long', 
 											day: 'numeric' 
-										})}
+										}) : ''}
 									</span>
-									<span className="text-gray-500 text-xs sm:text-sm">
-										{currentDateTime.toLocaleTimeString('en-US', { 
+									<span className="text-gray-500 text-xs sm:text-sm" suppressHydrationWarning>
+										{isMounted && currentDateTime ? currentDateTime.toLocaleTimeString('en-US', { 
 											hour: '2-digit', 
 											minute: '2-digit', 
 											second: '2-digit',
 											hour12: true 
-										})}
+										}) : ''}
 									</span>
 								</div>
 								

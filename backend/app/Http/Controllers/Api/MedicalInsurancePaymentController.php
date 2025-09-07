@@ -1,0 +1,670 @@
+<?php
+
+namespace App\Http\Controllers\Api;
+
+use App\Http\Controllers\Controller;
+use App\Services\CurlecPaymentService;
+use App\Models\MedicalInsuranceRegistration;
+use App\Models\MedicalInsurancePlan;
+use App\Models\MedicalInsurancePolicy;
+use App\Models\PaymentTransaction;
+use App\Models\GatewayPayment;
+use App\Models\Client;
+use App\Models\Member;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
+
+class MedicalInsurancePaymentController extends Controller
+{
+    protected $curlecService;
+
+    public function __construct(CurlecPaymentService $curlecService)
+    {
+        $this->curlecService = $curlecService;
+    }
+
+    /**
+     * Create payment order for medical insurance
+     */
+    public function createPaymentOrder(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'registration_id' => 'required|exists:medical_insurance_registrations,id',
+                'plan_id' => 'required|exists:medical_insurance_plans,id',
+                'payment_frequency' => 'required|in:monthly,quarterly,half_yearly,yearly',
+                'customer_type' => 'required|in:primary,second,third,fourth,fifth,sixth,seventh,eighth,ninth,tenth',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $registration = MedicalInsuranceRegistration::findOrFail($request->registration_id);
+            $plan = MedicalInsurancePlan::findOrFail($request->plan_id);
+
+            // Verify the registration belongs to the authenticated agent
+            if ($registration->agent_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to registration'
+                ], 403);
+            }
+
+            // Calculate amount based on customer type
+            $amount = $this->calculateAmount($registration, $plan, $request->customer_type, $request->payment_frequency);
+
+            // Create payment order
+            $orderResult = $this->curlecService->createOrder(
+                $amount,
+                'MYR',
+                'med_ins_' . $registration->registration_number . '_' . $request->customer_type,
+                [
+                    'registration_id' => $registration->id,
+                    'plan_id' => $plan->id,
+                    'customer_type' => $request->customer_type,
+                    'agent_id' => auth()->id()
+                ]
+            );
+
+            if (!$orderResult['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create payment order',
+                    'error' => $orderResult['error']
+                ], 500);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'order' => $orderResult['data'],
+                    'checkout_config' => $this->curlecService->getCheckoutConfig(
+                        $orderResult['data']['id'],
+                        $amount,
+                        'MYR',
+                        'Medical Insurance Payment',
+                        'Medical Insurance Payment for ' . $plan->name
+                    )
+                ],
+                'message' => 'Payment order created successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create payment order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Verify payment and update registration status
+     */
+    public function verifyPayment(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'razorpay_order_id' => 'required|string',
+                'razorpay_payment_id' => 'required|string',
+                'razorpay_signature' => 'required|string',
+                'registration_id' => 'required|exists:medical_insurance_registrations,id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $registration = MedicalInsuranceRegistration::findOrFail($request->registration_id);
+
+            // Verify the registration belongs to the authenticated agent
+            if ($registration->agent_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to registration'
+                ], 403);
+            }
+
+            // Verify payment signature
+            $isValid = $this->curlecService->verifyPaymentSignature(
+                $request->razorpay_order_id,
+                $request->razorpay_payment_id,
+                $request->razorpay_signature
+            );
+
+            if (!$isValid) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid payment signature'
+                ], 400);
+            }
+
+            // Get payment details from Curlec
+            $paymentResult = $this->curlecService->getPayment($request->razorpay_payment_id);
+
+            if (!$paymentResult['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to verify payment with payment gateway',
+                    'gateway_error' => $paymentResult['error'] ?? null
+                ], 400);
+            }
+
+            $payment = $paymentResult['data'];
+
+            // Update registration status
+            DB::beginTransaction();
+
+            try {
+                $registration->status = 'payment_pending';
+                $registration->payment_completed_at = now();
+                $registration->save();
+
+                // Create policy if payment is successful
+                if (in_array($payment['status'], ['captured', 'authorized'])) {
+                    $this->createPolicyFromRegistration($registration);
+                    // Create/update clients per registered customers and record payments per client
+                    $clients = $this->syncClientsFromRegistration($registration);
+                    $this->recordGatewayPayment($registration, $payment, $clients);
+                    $registration->status = 'active';
+                    $registration->save();
+                }
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'registration' => $registration->fresh(),
+                        'payment' => $payment
+                    ],
+                    'message' => 'Payment verified successfully'
+                ]);
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                throw $e;
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to verify payment',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Create payment order for all customers in registration
+     */
+    public function createPaymentOrderForAllCustomers(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'registration_id' => 'required|exists:medical_insurance_registrations,id',
+                'calculate_only' => 'boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            $registration = MedicalInsuranceRegistration::findOrFail($request->registration_id);
+
+            // Verify the registration belongs to the authenticated agent
+            if ($registration->agent_id !== auth()->id()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Unauthorized access to registration'
+                ], 403);
+            }
+
+            // Calculate total amount for all customers
+            $totalAmount = $this->calculateTotalAmountForAllCustomers($registration);
+
+            // If calculate_only is true, just return the total amount
+            if ($request->calculate_only) {
+                return response()->json([
+                    'success' => true,
+                    'data' => [
+                        'total_amount' => $totalAmount,
+                        'currency' => 'MYR',
+                        'customer_count' => $registration->getTotalCustomersCount()
+                    ],
+                    'message' => 'Total amount calculated successfully'
+                ]);
+            }
+
+            if ($totalAmount <= 0) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'No valid customers found for payment'
+                ], 400);
+            }
+
+            // Create payment order
+            $orderResult = $this->curlecService->createOrder(
+                $totalAmount,
+                'MYR',
+                'med_ins_all_' . $registration->registration_number,
+                [
+                    'registration_id' => $registration->id,
+                    'agent_id' => auth()->id(),
+                    'customer_count' => $registration->getTotalCustomersCount()
+                ]
+            );
+
+            if (!$orderResult['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create payment order',
+                    'error' => $orderResult['error']
+                ], 500);
+            }
+
+            return response()->json([
+                'success' => true,
+                'data' => [
+                    'order_id' => $orderResult['data']['id'],
+                    'amount' => $totalAmount,
+                    'currency' => 'MYR',
+                    'customer_count' => $registration->getTotalCustomersCount(),
+                    'checkout_config' => $this->curlecService->getCheckoutConfig(
+                        $orderResult['data']['id'],
+                        $totalAmount,
+                        'MYR',
+                        'Medical Insurance Registration',
+                        'Payment for ' . $registration->getTotalCustomersCount() . ' customers'
+                    )
+                ],
+                'message' => 'Payment order created successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to create payment order',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get payment configuration for frontend
+     */
+    public function getPaymentConfig()
+    {
+        try {
+            $config = [
+                'key_id' => config('services.curlec.key_id'),
+                'environment' => config('services.curlec.environment'),
+                'currency' => 'MYR',
+                'theme' => [
+                    'color' => '#F37254'
+                ]
+            ];
+
+            return response()->json([
+                'success' => true,
+                'data' => $config,
+                'message' => 'Payment configuration retrieved successfully'
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve payment configuration',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * List gateway payments for authenticated agent
+     */
+    public function getGatewayPayments(Request $request)
+    {
+        try {
+            $perPage = (int) ($request->query('per_page', 15));
+            $payments = GatewayPayment::where('agent_id', auth()->id())
+                ->orderByDesc('created_at')
+                ->paginate($perPage);
+
+            return response()->json([
+                'success' => true,
+                'data' => $payments,
+                'message' => 'Gateway payments retrieved successfully'
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to retrieve gateway payments',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Calculate payment amount based on customer type and plan
+     */
+    private function calculateAmount($registration, $plan, $customerType, $paymentFrequency)
+    {
+        switch ($customerType) {
+            case 'primary':
+                return $plan->getTotalPriceByFrequency($paymentFrequency);
+            case 'second':
+                $secondPlan = MedicalInsurancePlan::where('name', $registration->second_customer_plan_type)->first();
+                return $secondPlan ? $secondPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'third':
+                $thirdPlan = MedicalInsurancePlan::where('name', $registration->third_customer_plan_type)->first();
+                return $thirdPlan ? $thirdPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'fourth':
+                $fourthPlan = MedicalInsurancePlan::where('name', $registration->fourth_customer_plan_type)->first();
+                return $fourthPlan ? $fourthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'fifth':
+                $fifthPlan = MedicalInsurancePlan::where('name', $registration->fifth_customer_plan_type)->first();
+                return $fifthPlan ? $fifthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'sixth':
+                $sixthPlan = MedicalInsurancePlan::where('name', $registration->sixth_customer_plan_type)->first();
+                return $sixthPlan ? $sixthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'seventh':
+                $seventhPlan = MedicalInsurancePlan::where('name', $registration->seventh_customer_plan_type)->first();
+                return $seventhPlan ? $seventhPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'eighth':
+                $eighthPlan = MedicalInsurancePlan::where('name', $registration->eighth_customer_plan_type)->first();
+                return $eighthPlan ? $eighthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'ninth':
+                $ninthPlan = MedicalInsurancePlan::where('name', $registration->ninth_customer_plan_type)->first();
+                return $ninthPlan ? $ninthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            case 'tenth':
+                $tenthPlan = MedicalInsurancePlan::where('name', $registration->tenth_customer_plan_type)->first();
+                return $tenthPlan ? $tenthPlan->getTotalPriceByFrequency($paymentFrequency) : 0;
+            default:
+                return 0;
+        }
+    }
+
+    /**
+     * Calculate total amount for all customers in registration
+     */
+    private function calculateTotalAmountForAllCustomers($registration)
+    {
+        $totalAmount = 0;
+        
+        // Calculate based on actual customer data present, not flags
+        $customers = $this->getAllCustomersFromRegistration($registration);
+        
+        foreach ($customers as $customer) {
+            $plan = MedicalInsurancePlan::where('name', $customer['plan_type'])->first();
+            if ($plan) {
+                // Get base price based on payment mode
+                $basePrice = $this->getPlanPriceByFrequency($plan, $customer['payment_mode']);
+                $totalAmount += $basePrice + ($plan->commitment_fee ?? 0);
+            }
+        }
+        
+        return $totalAmount;
+    }
+    
+    /**
+     * Get all customers from registration based on actual data present
+     */
+    private function getAllCustomersFromRegistration($registration)
+    {
+        $customers = [];
+        
+        // Primary customer - always present
+        if ($registration->plan_type && $registration->full_name) {
+            $customers[] = [
+                'plan_type' => $registration->plan_type,
+                'payment_mode' => $registration->payment_mode,
+                'medical_card_type' => $registration->medical_card_type,
+            ];
+        }
+        
+        // Additional customers - check if they have plan_type and full_name
+        $customerNumbers = ['second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
+        
+        foreach ($customerNumbers as $customerNumber) {
+            $planField = "{$customerNumber}_customer_plan_type";
+            $nameField = "{$customerNumber}_customer_full_name";
+            $paymentField = "{$customerNumber}_customer_payment_mode";
+            $cardField = "{$customerNumber}_customer_medical_card_type";
+            
+            if ($registration->$planField && $registration->$nameField) {
+                $customers[] = [
+                    'plan_type' => $registration->$planField,
+                    'payment_mode' => $registration->$paymentField,
+                    'medical_card_type' => $registration->$cardField,
+                ];
+            }
+        }
+        
+        return $customers;
+    }
+    
+    /**
+     * Get plan price by frequency
+     */
+    private function getPlanPriceByFrequency($plan, $frequency)
+    {
+        switch ($frequency) {
+            case 'monthly':
+                return $plan->monthly_price;
+            case 'quarterly':
+                return $plan->quarterly_price ?? 0;
+            case 'half_yearly':
+                return $plan->half_yearly_price ?? 0;
+            case 'yearly':
+                return $plan->yearly_price;
+            default:
+                return $plan->monthly_price;
+        }
+    }
+
+    /**
+     * Create policy from registration
+     */
+    private function createPolicyFromRegistration($registration)
+    {
+        $customers = $registration->getAllCustomers();
+        
+        foreach ($customers as $customer) {
+            $plan = MedicalInsurancePlan::where('name', $customer['plan_type'])->first();
+            
+            if ($plan) {
+                $policy = new MedicalInsurancePolicy();
+                $policy->registration_id = $registration->id;
+                $policy->plan_id = $plan->id;
+                $policy->agent_id = $registration->agent_id;
+                $policy->policy_number = $policy->generatePolicyNumber();
+                $policy->customer_type = $customer['type'];
+                $policy->customer_name = $customer['full_name'];
+                $policy->customer_nric = $customer['nric'];
+                $policy->customer_phone = $customer['phone_number'];
+                $policy->customer_email = $customer['email'];
+                $policy->payment_frequency = $customer['payment_mode'];
+                $policy->premium_amount = $plan->getPriceByFrequency($customer['payment_mode']);
+                $policy->commitment_fee = $plan->commitment_fee;
+                $policy->medical_card_type = $customer['medical_card_type'];
+                $policy->status = 'active';
+                $policy->start_date = now()->toDateString();
+                $policy->end_date = now()->addYear()->toDateString();
+                $policy->next_payment_date = $this->calculateNextPaymentDate($customer['payment_mode']);
+                $policy->activated_at = now();
+                $policy->save();
+            }
+        }
+    }
+
+    /**
+     * Record payment in payment history
+     */
+    private function recordPaymentHistory($registration, $payment)
+    {
+        $totalAmount = $registration->getTotalAmount();
+        $customerCount = $registration->getTotalCustomersCount();
+        
+        // Create payment transaction record aligned with schema
+        $paymentTransaction = new PaymentTransaction();
+        // Associate to agent via a synthetic member if needed; otherwise, leave null
+        // Since this is a registration payment across multiple potential customers, store minimal gateway refs
+        $paymentTransaction->member_id = null;
+        $paymentTransaction->policy_id = null;
+        $paymentTransaction->transaction_id = $payment['id'] ?? ('TXN' . now()->format('YmdHis'));
+        $paymentTransaction->amount = $totalAmount;
+        // Map to existing enums
+        $paymentTransaction->payment_method = 'card';
+        $paymentTransaction->status = 'completed';
+        $paymentTransaction->payment_date = now();
+        $paymentTransaction->reference_number = $registration->registration_number;
+        $paymentTransaction->notes = "Medical Insurance Registration - {$customerCount} customers";
+        $paymentTransaction->save();
+    }
+
+    /**
+     * Store raw gateway payment tied to registration/agent
+     */
+    private function recordGatewayPayment($registration, array $payment, array $clients = []): void
+    {
+        try {
+            // Store one aggregate payment row
+            GatewayPayment::create([
+                'registration_id' => $registration->id,
+                'agent_id' => $registration->agent_id,
+                'client_id' => null,
+                'gateway' => 'curlec',
+                'payment_id' => $payment['id'] ?? null,
+                'order_id' => $payment['order_id'] ?? null,
+                'amount' => $registration->getTotalAmount(),
+                'currency' => 'MYR',
+                'status' => $payment['status'] ?? 'completed',
+                'description' => "Medical Insurance Registration - {$registration->getTotalCustomersCount()} customers",
+                'metadata' => [
+                    'registration_number' => $registration->registration_number,
+                    'plans' => $registration->getCustomerCountByPlan(),
+                ],
+                'gateway_response' => $payment,
+                'completed_at' => now(),
+            ]);
+
+            // Store per-client payment rows
+            foreach ($clients as $client) {
+                GatewayPayment::create([
+                    'registration_id' => $registration->id,
+                    'agent_id' => $registration->agent_id,
+                    'client_id' => $client->id,
+                    'gateway' => 'curlec',
+                    'payment_id' => $payment['id'] ?? null,
+                    'order_id' => $payment['order_id'] ?? null,
+                    'amount' => $client->plan_name ? (\App\Models\MedicalInsurancePlan::where('name', $client->plan_name)->first()?->getTotalPriceByFrequency($client->payment_mode) ?? 0) : 0,
+                    'currency' => 'MYR',
+                    'status' => $payment['status'] ?? 'completed',
+                    'description' => "Payment for {$client->full_name} ({$client->customer_type})",
+                    'metadata' => [
+                        'plan_name' => $client->plan_name,
+                        'payment_mode' => $client->payment_mode,
+                        'medical_card_type' => $client->medical_card_type,
+                    ],
+                    'gateway_response' => $payment,
+                    'completed_at' => now(),
+                ]);
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('Failed to persist gateway payment: ' . $e->getMessage(), [
+                'registration_id' => $registration->id,
+            ]);
+        }
+    }
+
+    /**
+     * Ensure Client rows exist for each customer in the registration and return them
+     * @return Client[]
+     */
+    private function syncClientsFromRegistration($registration): array
+    {
+        $clients = [];
+        foreach ($registration->getAllCustomers() as $customer) {
+            $client = Client::firstOrCreate(
+                [
+                    'agent_id' => $registration->agent_id,
+                    'registration_id' => $registration->id,
+                    'customer_type' => $customer['type'],
+                    'nric' => $customer['nric'],
+                ],
+                [
+                    'full_name' => $customer['full_name'],
+                    'phone_number' => $customer['phone_number'],
+                    'email' => $customer['email'] ?? null,
+                    'plan_name' => $customer['plan_type'],
+                    'payment_mode' => $customer['payment_mode'],
+                    'medical_card_type' => $customer['medical_card_type'],
+                    'status' => 'active',
+                    'policy_id' => null,
+                ]
+            );
+
+            // Ensure member exists for this client under the agent
+            try {
+                $member = Member::firstOrCreate(
+                    [
+                        'user_id' => $registration->agent_id,
+                        'nric' => $customer['nric'],
+                    ],
+                    [
+                        'name' => $customer['full_name'],
+                        'phone' => $customer['phone_number'],
+                        'email' => $customer['email'] ?? null,
+                        'race' => $customer['race'] ?? '',
+                        'status' => 'active',
+                        'registration_date' => now(),
+                        'emergency_contact_name' => $registration->emergency_contact_name,
+                        'emergency_contact_phone' => $registration->emergency_contact_phone,
+                        'emergency_contact_relationship' => $registration->emergency_contact_relationship,
+                    ]
+                );
+            } catch (\Throwable $e) {
+                \Log::warning('Failed to sync member from client: ' . $e->getMessage(), [
+                    'registration_id' => $registration->id,
+                    'nric' => $customer['nric'] ?? null,
+                ]);
+            }
+            $clients[] = $client;
+        }
+        return $clients;
+    }
+
+    /**
+     * Calculate next payment date based on frequency
+     */
+    private function calculateNextPaymentDate($frequency)
+    {
+        switch ($frequency) {
+            case 'monthly':
+                return now()->addMonth()->toDateString();
+            case 'quarterly':
+                return now()->addMonths(3)->toDateString();
+            case 'half_yearly':
+                return now()->addMonths(6)->toDateString();
+            case 'yearly':
+                return now()->addYear()->toDateString();
+            default:
+                return now()->addMonth()->toDateString();
+        }
+    }
+}

@@ -626,6 +626,150 @@ class ApiService {
 
     return await this.handleResponse<RecordsSharingResponse>(response);
   }
+
+  // Medical Insurance
+  async getMedicalInsurancePlans(): Promise<ApiResponse<any[]>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/plans`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+
+    return await this.handleResponse<any[]>(response);
+  }
+
+  async getMedicalInsurancePlan(id: number): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/plans/${id}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async registerMedicalInsurance(registrationData: any): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/register`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(registrationData)
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async getMedicalInsuranceRegistrations(): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/registrations`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async getMedicalInsuranceRegistrationStatus(id: number): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/registrations/${id}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async createMedicalInsurancePaymentOrder(paymentData: any): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/payment/create-order`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(paymentData)
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async createMedicalInsurancePaymentOrderForAllCustomers(paymentData: any): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/payment/create-order-all`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(paymentData)
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async verifyMedicalInsurancePayment(verificationData: any): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/payment/verify`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(verificationData)
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async getMedicalInsurancePaymentConfig(): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/payment/config`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
+  async getGatewayPaymentHistory(page: number = 1): Promise<ApiResponse<{ data: any[]; current_page: number; total: number }>> {
+    const params = new URLSearchParams({ page: String(page) });
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/payment/gateway-history?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{ data: any[]; current_page: number; total: number }>(response);
+  }
+
+  // Clients (agent's customers)
+  async getClients(page: number = 1): Promise<ApiResponse<{ data: any[]; current_page: number; total: number }>> {
+    const params = new URLSearchParams({ page: String(page) });
+    const response = await fetch(`${API_BASE_URL}/clients?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{ data: any[]; current_page: number; total: number }>(response);
+  }
+
+  async getClient(id: number): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/clients/${id}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async getClientPayments(id: number): Promise<ApiResponse<any[]>> {
+    const response = await fetch(`${API_BASE_URL}/clients/${id}/payments`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any[]>(response);
+  }
+
+  async downloadClientCard(id: number): Promise<Blob> {
+    const response = await fetch(`${API_BASE_URL}/clients/${id}/card`, {
+      method: 'GET',
+      headers: {
+        ...(this.getHeaders()),
+        'Accept': 'image/svg+xml'
+      }
+    });
+    return await response.blob();
+  }
+
+  async getMedicalInsurancePolicies(): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/policies`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<any>(response);
+  }
 }
 
 // Create and export a single instance

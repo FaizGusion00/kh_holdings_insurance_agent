@@ -21,12 +21,14 @@ import {
     Grid3X3,
     ArrowLeft,
     Shield,
-    Phone
+    Phone,
+    Plus
 } from "lucide-react";
 import { PageTransition, FadeIn, StaggeredContainer, StaggeredItem } from "../(ui)/components/PageTransition";
 import { motion, AnimatePresence } from "framer-motion";
+import MedicalInsuranceRegistrationForm from "../(ui)/components/MedicalInsuranceRegistrationForm";
 
-type TabType = 'overview' | 'profile' | 'payment-settings' | 'payment-history' | 'referrer';
+type TabType = 'overview' | 'profile' | 'payment-settings' | 'payment-history' | 'medical-insurance' | 'referrer';
 type ReferrerSubTab = 'referral' | 'bank-info' | 'commission';
 
 interface PaymentData {
@@ -50,6 +52,7 @@ export default function ProfilePage() {
     const [showChangePhoneModal, setShowChangePhoneModal] = useState(false);
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
     const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
+    const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
     const [phoneChangeStep, setPhoneChangeStep] = useState<'initial' | 'tac-verification' | 'new-phone' | 'new-tac-verification' | 'success'>('initial');
     const [tacCode, setTacCode] = useState('');
     const [newPhoneNumber, setNewPhoneNumber] = useState('');
@@ -61,9 +64,15 @@ export default function ProfilePage() {
 
     // API data states
     const [paymentHistory, setPaymentHistory] = useState<PaymentTransaction[]>([]);
+    const [gatewayPayments, setGatewayPayments] = useState<any[]>([]);
+    const [medicalInsurancePolicies, setMedicalInsurancePolicies] = useState<any[]>([]);
     const [mandates, setMandates] = useState<PaymentMandate[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
+    const [clients, setClients] = useState<any[]>([]);
+    const [selectedClient, setSelectedClient] = useState<any | null>(null);
+    const [clientPayments, setClientPayments] = useState<any[]>([]);
+    const [showClientModal, setShowClientModal] = useState(false);
 
     // Update profile form when user data changes
     useEffect(() => {
@@ -99,18 +108,38 @@ export default function ProfilePage() {
                 } finally {
                     setIsLoading(false);
                 }
+                // Load gateway payments in parallel (non-blocking UI)
+                try {
+                    const gp = await apiService.getGatewayPaymentHistory(1);
+                    if (gp.success && gp.data) {
+                        setGatewayPayments(gp.data.data || []);
+                    }
+                } catch {}
+            }
+            if (activeTab === 'medical-insurance') {
+                setIsLoading(true);
+                try {
+                    const res = await apiService.getClients(1);
+                    if (res.success && res.data) {
+                        setClients(res.data.data || []);
+                    } else {
+                        setError(res.message || 'Failed to load clients');
+                    }
+                } catch (e) {
+                    setError(e instanceof Error ? e.message : 'Failed to load clients');
+                } finally {
+                    setIsLoading(false);
+                }
             }
             if (activeTab === 'payment-settings') {
                 setIsLoading(true);
                 try {
                     const res = await apiService.getPaymentMandates();
                     if (res.success && res.data) {
-                        setMandates(res.data);
-                    } else {
-                        setError(res.message || 'Failed to load mandates');
+                        setMandates(res.data || []);
                     }
                 } catch (e) {
-                    setError(e instanceof Error ? e.message : 'Failed to load mandates');
+                    // ignore
                 } finally {
                     setIsLoading(false);
                 }
@@ -161,6 +190,39 @@ export default function ProfilePage() {
         setOldPassword('');
         setNewPassword('');
         setConfirmPassword('');
+    };
+
+    const handleMedicalInsuranceRegistration = () => {
+        setShowMedicalInsuranceModal(true);
+    };
+
+    const handleMedicalInsuranceSuccess = async (result: any) => {
+        // Show confirmation and switch to payment-history tab, pulling new data
+        try {
+            setShowMedicalInsuranceModal(false);
+            setActiveTab('payment-history');
+            const res = await apiService.getGatewayPaymentHistory(1);
+            if (res.success) {
+                // Reuse paymentHistory list visually by mapping gateway entries into a minimal shape
+                const rows = (res.data?.data || []).map((g: any) => ({
+                    description: g.description || 'Medical Insurance Payment',
+                    amount: `RM ${Number(g.amount).toFixed(2)}`,
+                    status: g.status,
+                    date: new Date(g.completed_at || g.created_at).toLocaleString(),
+                    method: 'Card',
+                    reference: g.payment_id,
+                }));
+                // Also refresh standard payment history in background
+                try {
+                    const ph = await apiService.getPaymentHistory(1);
+                    if (ph.success && ph.data) setPaymentHistory(ph.data.data || []);
+                } catch {}
+                // Fire a simple info toast replacement
+                alert('Payment successful. Showing your latest payment history.');
+            }
+        } catch (e) {
+            console.error(e);
+        }
     };
 
     const handlePhoneContinue = async () => {
@@ -265,16 +327,17 @@ export default function ProfilePage() {
         { id: 'profile', label: 'My Profile', icon: UserIcon, active: activeTab === 'profile' },
         { id: 'payment-settings', label: 'Payment Settings', icon: DollarSign, active: activeTab === 'payment-settings' },
         { id: 'payment-history', label: 'Payment History', icon: FileText, active: activeTab === 'payment-history' },
+        { id: 'medical-insurance', label: 'Medical Insurance', icon: Shield, active: activeTab === 'medical-insurance' },
         { id: 'referrer', label: 'Referrer', icon: Crown, active: activeTab === 'referrer' },
     ];
 
-    // Map API payment history to UI rows
-    const paymentHistoryData: PaymentData[] = paymentHistory.map((p) => ({
-        description: p.description || (p.policy ? `Policy #${p.policy.policy_number}` : 'Payment'),
-        amount: String(p.amount),
-        method: p.payment_method,
-        status: p.status,
-        date: p.transaction_date,
+    // Map API payment history to UI rows (now using gateway payments)
+    const paymentHistoryData: PaymentData[] = (gatewayPayments || []).map((g: any) => ({
+        description: g.description || 'Medical Insurance Payment',
+        amount: Number(g.amount).toFixed(2),
+        method: 'Card',
+        status: g.status,
+        date: new Date(g.completed_at || g.created_at).toLocaleString(),
     }));
 
     const commissionData = [
@@ -447,6 +510,90 @@ export default function ProfilePage() {
                     </div>
                 );
 
+            case 'medical-insurance':
+                return (
+                    <div className="space-y-4">
+                        <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-bold text-gray-800">Medical Insurance Clients</h2>
+                                <div className="h-0.5 w-8 bg-emerald-500 rounded-full"></div>
+                            </div>
+                            <button
+                                onClick={handleMedicalInsuranceRegistration}
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                            >
+                                Register New Client
+                            </button>
+                        </div>
+                        {isLoading && <div className="text-sm text-gray-500 px-1">Loading...</div>}
+                        {error && <div className="text-sm text-red-600 px-1">{error}</div>}
+                        <div className="space-y-4">
+                            {clients.length === 0 ? (
+                                <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
+                                    <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Clients Yet</h3>
+                                    <p className="text-gray-600 mb-4">Register a medical insurance for your client to get started.</p>
+                                    <button
+                                        onClick={handleMedicalInsuranceRegistration}
+                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                                    >
+                                        Register for Medical Insurance
+                                    </button>
+                                </div>
+                            ) : (
+                                clients.map((client, index) => (
+                                    <div key={index} className="bg-white border border-gray-200 rounded-lg p-6">
+                                        <div className="flex items-start justify-between mb-4">
+                                            <div>
+                                                <h3 className="text-lg font-semibold text-gray-800">{client.full_name}</h3>
+                                                <p className="text-sm text-gray-600">{client.nric}</p>
+                                            </div>
+                                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
+                                                client.status === 'active' 
+                                                    ? 'bg-green-100 text-green-800' 
+                                                    : 'bg-gray-100 text-gray-800'
+                                            }`}>
+                                                {client.status}
+                                            </span>
+                                        </div>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                                            <div>
+                                                <div className="text-sm text-gray-500 mb-1">Plan</div>
+                                                <div className="font-medium text-gray-800">{client.plan_name}</div>
+                                                <div className="text-sm text-gray-600 capitalize">{client.payment_mode}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm text-gray-500 mb-1">Contact</div>
+                                                <div className="font-medium text-gray-800">{client.phone_number}</div>
+                                                <div className="text-sm text-gray-600">{client.email || '-'}</div>
+                                            </div>
+                                            <div>
+                                                <div className="text-sm text-gray-500 mb-1">Gateway Payments</div>
+                                                <div className="text-sm text-gray-700">
+                                                    {gatewayPayments.find((p: any) => p.client_id === client.id) ? 'Recorded' : 'No records yet'}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
+                                            <div className="text-sm text-gray-600">
+                                                Medical Card: {client.medical_card_type}
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleViewClientDetails(client)} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-sm hover:bg-emerald-200 transition-colors">
+                                                    View Details
+                                                </button>
+                                                <button onClick={() => handleDownloadClientCard(client)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">
+                                                    Download Card
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                );
+
             case 'payment-history':
                 return (
                     <div className="space-y-4">
@@ -578,7 +725,16 @@ export default function ProfilePage() {
                         {activeReferrerTab === 'referral' && (
                             <div className="space-y-6">
                                 <div className="bg-white border border-gray-200 rounded-lg p-6">
-                                    <h3 className="font-semibold text-gray-800 mb-4">My Referral Link</h3>
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="font-semibold text-gray-800">My Referral Link</h3>
+                                        <button
+                                            onClick={handleMedicalInsuranceRegistration}
+                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                                        >
+                                            <Plus className="w-4 h-4" />
+                                            Register
+                                        </button>
+                                    </div>
                                     <div className="space-y-3">
                                         <div className="flex gap-2">
                                             <input
@@ -847,6 +1003,37 @@ export default function ProfilePage() {
                 return null;
         }
 	};
+
+    const handleViewClientDetails = async (client: any) => {
+        try {
+            setSelectedClient(client);
+            setShowClientModal(true);
+            const res = await apiService.getClientPayments(client.id);
+            if (res.success && res.data) {
+                setClientPayments(res.data || []);
+            } else {
+                setClientPayments([]);
+            }
+        } catch {
+            setClientPayments([]);
+        }
+    };
+
+    const handleDownloadClientCard = async (client: any) => {
+        try {
+            const blob = await apiService.downloadClientCard(client.id);
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `medical-card-${client.full_name.replace(/[^A-Za-z0-9]/g, '')}.svg`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            window.URL.revokeObjectURL(url);
+        } catch (e) {
+            alert('Failed to download card');
+        }
+    };
 
 	return (
         <>
@@ -1422,6 +1609,12 @@ export default function ProfilePage() {
                 )}
             </AnimatePresence>
 
+            <MedicalInsuranceRegistrationForm
+                isOpen={showMedicalInsuranceModal}
+                onClose={() => setShowMedicalInsuranceModal(false)}
+                onSuccess={handleMedicalInsuranceSuccess}
+            />
+
             <PageTransition>
                 <div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
                     <div className="w-full max-w-6xl xl:max-w-7xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
@@ -1434,12 +1627,11 @@ export default function ProfilePage() {
                         >
                             <button
                                 onClick={() => setShowLogoutConfirmModal(true)}
-                                className="group flex items-center gap-3 px-5 py-3 bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white rounded-xl border border-red-400 hover:border-red-500 transition-all duration-300 shadow-lg hover:shadow-xl hover:-translate-y-0.5 transform"
+                                aria-label="Logout"
+                                title="Logout"
+                                className="grid place-content-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-red-500 hover:bg-red-600 text-white border border-red-400 transition-colors duration-200 shadow-md hover:shadow-lg"
                             >
-                                <LogOut size={20} className="group-hover:rotate-12 transition-transform duration-300" />
-                                <span className="text-base font-semibold tracking-wide">Logout</span>
-                                {/* Enhanced hover effect indicator */}
-                                <div className="absolute inset-0 bg-white/10 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                                <LogOut size={16} />
                             </button>
                         </motion.div>
 
@@ -1497,6 +1689,70 @@ export default function ProfilePage() {
 				</div>
 			</div>
             </PageTransition>
+
+            {/* Client Details Modal */}
+            <AnimatePresence>
+                {showClientModal && selectedClient && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+                            animate={{ scale: 1, opacity: 1, y: 0 }}
+                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
+                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                        >
+                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
+                                <h2 className="text-xl font-bold text-gray-800">Client Details</h2>
+                                <button onClick={() => setShowClientModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
+                                    <X className="w-5 h-5 text-gray-600" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Name</div>
+                                        <div className="font-medium text-gray-800">{selectedClient.full_name}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">NRIC</div>
+                                        <div className="font-medium text-gray-800">{selectedClient.nric}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Plan</div>
+                                        <div className="font-medium text-gray-800">{selectedClient.plan_name}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-sm text-gray-500 mb-1">Payment Mode</div>
+                                        <div className="font-medium text-gray-800 capitalize">{selectedClient.payment_mode}</div>
+                                    </div>
+                                </div>
+                                <div className="pt-4 border-t border-gray-200">
+                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Payments</h3>
+                                    {clientPayments.length === 0 ? (
+                                        <div className="text-sm text-gray-500">No payments found.</div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {clientPayments.map((p, i) => (
+                                                <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg p-3">
+                                                    <div className="text-gray-700">{p.description || 'Payment'}</div>
+                                                    <div className="text-gray-900 font-medium">RM {Number(p.amount).toFixed(2)}</div>
+                                                    <div className="text-gray-600">{new Date(p.completed_at || p.created_at).toLocaleString()}</div>
+                                                    <div className="text-gray-600">{p.status}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </>
 	);
 }
