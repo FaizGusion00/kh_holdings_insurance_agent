@@ -56,10 +56,13 @@
                 </select>
             </div>
             
-            <div class="flex items-end">
-                <button type="submit" class="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <div class="flex items-end space-x-2">
+                <button type="submit" class="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500">
                     Filter
                 </button>
+                <a href="{{ route('admin.products.index') }}" class="flex-1 bg-gray-300 text-gray-700 px-4 py-2 rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 text-center">
+                    Clear
+                </a>
             </div>
         </form>
     </div>

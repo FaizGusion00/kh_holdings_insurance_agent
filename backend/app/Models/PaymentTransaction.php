@@ -12,18 +12,26 @@ class PaymentTransaction extends Model
     protected $fillable = [
         'member_id',
         'policy_id',
-        'transaction_id',
         'amount',
+        'payment_type',
         'payment_method',
-        'payment_date',
         'status',
+        'transaction_date',
+        'description',
         'reference_number',
-        'notes',
+        'gateway_reference',
+        'gateway_response',
+        'processed_at',
+        'failed_at',
+        'failure_reason',
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
-        'payment_date' => 'date',
+        'transaction_date' => 'datetime',
+        'processed_at' => 'datetime',
+        'failed_at' => 'datetime',
+        'gateway_response' => 'array',
     ];
 
     /**

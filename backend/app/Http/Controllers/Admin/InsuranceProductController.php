@@ -28,14 +28,14 @@ class InsuranceProductController extends Controller
             });
         }
         
-        // Filter by product type
-        if ($request->filled('product_type')) {
-            $query->where('product_type', $request->product_type);
+        // Filter by category
+        if ($request->filled('category')) {
+            $query->where('category', $request->category);
         }
         
         // Filter by status
-        if ($request->filled('is_active')) {
-            $query->where('is_active', $request->is_active);
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->status === 'active' ? 1 : 0);
         }
         
         // Filter by price range

@@ -42,8 +42,8 @@ class CommissionController extends Controller
         }
         
         // Filter by agent
-        if ($request->filled('agent_id')) {
-            $query->where('user_id', $request->agent_id);
+        if ($request->filled('agent')) {
+            $query->where('user_id', $request->agent);
         }
         
         // Filter by product

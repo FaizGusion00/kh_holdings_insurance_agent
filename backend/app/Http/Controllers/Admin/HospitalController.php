@@ -33,8 +33,8 @@ class HospitalController extends Controller
         }
         
         // Filter by status
-        if ($request->filled('is_active')) {
-            $query->where('is_active', $request->is_active);
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->status === '1' ? 1 : 0);
         }
         
         $hospitals = $query->orderBy('name')->paginate(15);

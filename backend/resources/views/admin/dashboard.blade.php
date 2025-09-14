@@ -126,19 +126,36 @@
     </div>
 
     <!-- Charts Section -->
-    <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+    <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Commission Trends Chart -->
-        <div class="bg-white shadow rounded-lg p-6 slide-in">
-            <h3 class="text-lg font-medium text-gray-900 mb-4">Commission Trends</h3>
-            <div class="h-64">
+        <div class="bg-white shadow-lg rounded-xl p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold text-gray-800">Commission Trends</h3>
+                <div class="w-3 h-3 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full animate-pulse"></div>
+            </div>
+            <div class="h-72">
                 <canvas id="commissionChart"></canvas>
             </div>
         </div>
 
+        <!-- Revenue Analytics Chart -->
+        <div class="bg-white shadow-lg rounded-xl p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold text-gray-800">Revenue Analytics</h3>
+                <div class="w-3 h-3 bg-gradient-to-r from-green-500 to-green-600 rounded-full animate-pulse"></div>
+            </div>
+            <div class="h-72">
+                <canvas id="revenueChart"></canvas>
+            </div>
+        </div>
+
         <!-- Member Growth Chart -->
-        <div class="bg-white shadow rounded-lg p-6 slide-in">
-            <h3 class="text-lg font-medium text-gray-900 mb-4">Member Growth (Last 30 Days)</h3>
-            <div class="h-64">
+        <div class="bg-white shadow-lg rounded-xl p-6 border border-gray-100 hover:shadow-xl transition-all duration-300">
+            <div class="flex items-center justify-between mb-6">
+                <h3 class="text-lg font-semibold text-gray-800">Member Growth</h3>
+                <div class="w-3 h-3 bg-gradient-to-r from-purple-500 to-purple-600 rounded-full animate-pulse"></div>
+            </div>
+            <div class="h-72">
                 <canvas id="memberGrowthChart"></canvas>
             </div>
         </div>
@@ -225,7 +242,17 @@
 
 @push('scripts')
 <script>
-// Commission Trends Chart
+// Chart.js configuration for modern animations
+Chart.defaults.animation = {
+    duration: 2000,
+    easing: 'easeInOutQuart'
+};
+
+Chart.defaults.plugins.legend = {
+    display: false
+};
+
+// Commission Trends Chart - Modern Line Chart
 const commissionCtx = document.getElementById('commissionChart').getContext('2d');
 new Chart(commissionCtx, {
     type: 'line',
@@ -234,26 +261,121 @@ new Chart(commissionCtx, {
         datasets: [{
             label: 'Commission Amount (RM)',
             data: @json($commissionTrends->pluck('commission')),
-            borderColor: 'rgb(59, 130, 246)',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderColor: 'rgb(99, 102, 241)',
+            backgroundColor: 'rgba(99, 102, 241, 0.1)',
+            borderWidth: 3,
             tension: 0.4,
-            fill: true
+            fill: true,
+            pointBackgroundColor: 'rgb(99, 102, 241)',
+            pointBorderColor: '#ffffff',
+            pointBorderWidth: 3,
+            pointRadius: 6,
+            pointHoverRadius: 8,
+            pointHoverBackgroundColor: 'rgb(99, 102, 241)',
+            pointHoverBorderColor: '#ffffff',
+            pointHoverBorderWidth: 3
         }]
     },
     options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+            intersect: false,
+            mode: 'index'
+        },
         plugins: {
-            legend: {
-                display: false
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#ffffff',
+                bodyColor: '#ffffff',
+                borderColor: 'rgb(99, 102, 241)',
+                borderWidth: 1,
+                cornerRadius: 8,
+                displayColors: false,
+                callbacks: {
+                    label: function(context) {
+                        return 'Commission: RM ' + context.parsed.y.toLocaleString();
+                    }
+                }
             }
         },
         scales: {
+            x: {
+                grid: {
+                    display: false
+                },
+                ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 12
+                    }
+                }
+            },
             y: {
                 beginAtZero: true,
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.05)'
+                },
                 ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 12
+                    },
                     callback: function(value) {
                         return 'RM ' + value.toLocaleString();
+                    }
+                }
+            }
+        },
+        elements: {
+            point: {
+                hoverBackgroundColor: 'rgb(99, 102, 241)'
+            }
+        }
+    }
+});
+
+// Revenue Analytics Chart - Modern Doughnut Chart
+const revenueCtx = document.getElementById('revenueChart').getContext('2d');
+new Chart(revenueCtx, {
+    type: 'doughnut',
+    data: {
+        labels: ['Completed', 'Pending', 'Failed'],
+        datasets: [{
+            data: [
+                @json($metrics['completed_revenue'] ?? 0),
+                @json($metrics['pending_revenue'] ?? 0),
+                @json($metrics['failed_revenue'] ?? 0)
+            ],
+            backgroundColor: [
+                'rgba(34, 197, 94, 0.8)',
+                'rgba(251, 191, 36, 0.8)',
+                'rgba(239, 68, 68, 0.8)'
+            ],
+            borderColor: [
+                'rgb(34, 197, 94)',
+                'rgb(251, 191, 36)',
+                'rgb(239, 68, 68)'
+            ],
+            borderWidth: 2,
+            hoverOffset: 10
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '60%',
+        plugins: {
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#ffffff',
+                bodyColor: '#ffffff',
+                cornerRadius: 8,
+                callbacks: {
+                    label: function(context) {
+                        const total = context.dataset.data.reduce((a, b) => a + b, 0);
+                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                        return context.label + ': RM ' + context.parsed.toLocaleString() + ' (' + percentage + '%)';
                     }
                 }
             }
@@ -261,7 +383,7 @@ new Chart(commissionCtx, {
     }
 });
 
-// Member Growth Chart
+// Member Growth Chart - Modern Bar Chart
 const memberGrowthCtx = document.getElementById('memberGrowthChart').getContext('2d');
 new Chart(memberGrowthCtx, {
     type: 'bar',
@@ -270,28 +392,99 @@ new Chart(memberGrowthCtx, {
         datasets: [{
             label: 'New Members',
             data: @json($memberGrowth->pluck('count')),
-            backgroundColor: 'rgba(34, 197, 94, 0.8)',
-            borderColor: 'rgb(34, 197, 94)',
-            borderWidth: 1
+            backgroundColor: [
+                'rgba(168, 85, 247, 0.8)',
+                'rgba(236, 72, 153, 0.8)',
+                'rgba(59, 130, 246, 0.8)',
+                'rgba(34, 197, 94, 0.8)',
+                'rgba(251, 191, 36, 0.8)',
+                'rgba(239, 68, 68, 0.8)',
+                'rgba(99, 102, 241, 0.8)'
+            ],
+            borderColor: [
+                'rgb(168, 85, 247)',
+                'rgb(236, 72, 153)',
+                'rgb(59, 130, 246)',
+                'rgb(34, 197, 94)',
+                'rgb(251, 191, 36)',
+                'rgb(239, 68, 68)',
+                'rgb(99, 102, 241)'
+            ],
+            borderWidth: 2,
+            borderRadius: 8,
+            borderSkipped: false
         }]
     },
     options: {
         responsive: true,
         maintainAspectRatio: false,
+        interaction: {
+            intersect: false,
+            mode: 'index'
+        },
         plugins: {
-            legend: {
-                display: false
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#ffffff',
+                bodyColor: '#ffffff',
+                cornerRadius: 8,
+                callbacks: {
+                    label: function(context) {
+                        return 'New Members: ' + context.parsed.y;
+                    }
+                }
             }
         },
         scales: {
+            x: {
+                grid: {
+                    display: false
+                },
+                ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 12
+                    }
+                }
+            },
             y: {
                 beginAtZero: true,
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.05)'
+                },
                 ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 12
+                    },
                     stepSize: 1
                 }
             }
         }
     }
+});
+
+// Add smooth animations on scroll
+const observerOptions = {
+    threshold: 0.1,
+    rootMargin: '0px 0px -50px 0px'
+};
+
+const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            entry.target.style.opacity = '1';
+            entry.target.style.transform = 'translateY(0)';
+        }
+    });
+}, observerOptions);
+
+// Apply animations to chart containers
+document.querySelectorAll('.bg-white.shadow-lg').forEach(el => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(20px)';
+    el.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+    observer.observe(el);
 });
 </script>
 @endpush

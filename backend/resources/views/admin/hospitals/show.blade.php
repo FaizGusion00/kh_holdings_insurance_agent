@@ -1,6 +1,6 @@
 @extends('admin.layouts.app')
 
-@section('title', 'Clinic Details')
+@section('title', 'Hospital Details')
 
 @section('content')
 <div class="space-y-6">
@@ -10,23 +10,23 @@
             <div class="px-4 py-6 sm:px-6 lg:px-8">
                 <div class="flex items-center justify-between">
                     <div>
-                        <h1 class="text-3xl font-bold tracking-tight text-gray-900">{{ $clinic->name }}</h1>
-                        <p class="mt-2 text-sm text-gray-700">Clinic information and details</p>
+                        <h1 class="text-3xl font-bold tracking-tight text-gray-900">{{ $hospital->name }}</h1>
+                        <p class="mt-2 text-sm text-gray-700">Hospital information and details</p>
                     </div>
                     <div class="flex space-x-3">
-                        <a href="{{ route('admin.clinics.edit', $clinic) }}" 
+                        <a href="{{ route('admin.hospitals.edit', $hospital) }}" 
                            class="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
                             <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
                             </svg>
-                            Edit Clinic
+                            Edit Hospital
                         </a>
-                        <a href="{{ route('admin.clinics.index') }}" 
+                        <a href="{{ route('admin.hospitals.index') }}" 
                            class="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
                             <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"></path>
                             </svg>
-                            Back to Clinics
+                            Back to Hospitals
                         </a>
                     </div>
                 </div>
@@ -34,50 +34,78 @@
         </div>
     </div>
 
-    <!-- Clinic Details -->
+    <!-- Hospital Details -->
     <div class="grid grid-cols-1 gap-6 lg:grid-cols-3">
         <!-- Main Information -->
         <div class="lg:col-span-2">
             <div class="bg-white shadow rounded-lg">
                 <div class="px-6 py-4 border-b border-gray-200">
-                    <h3 class="text-lg font-medium text-gray-900">Clinic Information</h3>
+                    <h3 class="text-lg font-medium text-gray-900">Hospital Information</h3>
                 </div>
                 <div class="px-6 py-4 space-y-6">
                     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div>
-                            <label class="block text-sm font-medium text-gray-500">Clinic Name</label>
-                            <p class="mt-1 text-sm text-gray-900">{{ $clinic->name }}</p>
+                            <label class="block text-sm font-medium text-gray-500">Hospital Name</label>
+                            <p class="mt-1 text-sm text-gray-900">{{ $hospital->name }}</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-500">Status</label>
-                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $clinic->is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
-                                {{ $clinic->is_active ? 'Active' : 'Inactive' }}
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{ $hospital->is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800' }}">
+                                {{ $hospital->is_active ? 'Active' : 'Inactive' }}
                             </span>
                         </div>
                     </div>
 
                     <div>
+                        <label class="block text-sm font-medium text-gray-500">Description</label>
+                        <p class="mt-1 text-sm text-gray-900">{{ $hospital->description ?? 'No description available' }}</p>
+                    </div>
+
+                    <div>
                         <label class="block text-sm font-medium text-gray-500">Full Address</label>
-                        <p class="mt-1 text-sm text-gray-900">{{ $clinic->full_address }}</p>
+                        <p class="mt-1 text-sm text-gray-900">{{ $hospital->full_address }}</p>
                     </div>
 
                     <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
                         <div>
                             <label class="block text-sm font-medium text-gray-500">Phone</label>
-                            <p class="mt-1 text-sm text-gray-900">{{ $clinic->phone }}</p>
+                            <p class="mt-1 text-sm text-gray-900">{{ $hospital->phone }}</p>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-500">Email</label>
-                            <p class="mt-1 text-sm text-gray-900">{{ $clinic->email ?? 'Not provided' }}</p>
+                            <p class="mt-1 text-sm text-gray-900">{{ $hospital->email ?? 'Not provided' }}</p>
                         </div>
                     </div>
 
-                    @if($clinic->website)
+                    @if($hospital->website)
                     <div>
                         <label class="block text-sm font-medium text-gray-500">Website</label>
-                        <a href="{{ $clinic->website }}" target="_blank" class="mt-1 text-sm text-blue-600 hover:text-blue-500">
-                            {{ $clinic->website }}
+                        <a href="{{ $hospital->website }}" target="_blank" class="mt-1 text-sm text-blue-600 hover:text-blue-500">
+                            {{ $hospital->website }}
                         </a>
+                    </div>
+                    @endif
+
+                    @if($hospital->license_number)
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">License Number</label>
+                            <p class="mt-1 text-sm text-gray-900">{{ $hospital->license_number }}</p>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-500">License Expiry</label>
+                            <p class="mt-1 text-sm text-gray-900">
+                                @if($hospital->license_expiry)
+                                    @if(is_string($hospital->license_expiry))
+                                        {{ \Carbon\Carbon::parse($hospital->license_expiry)->format('M d, Y') }}
+                                    @else
+                                        {{ $hospital->license_expiry->format('M d, Y') }}
+                                    @endif
+                                @else
+                                    Not set
+                                @endif
+                            </p>
+                        </div>
                     </div>
                     @endif
                 </div>
@@ -87,36 +115,17 @@
         <!-- Sidebar Information -->
         <div class="space-y-6">
             <!-- Specialties -->
-            @if($clinic->specialties && is_array($clinic->specialties) && count($clinic->specialties) > 0)
+            @if($hospital->specialties && is_array($hospital->specialties) && count($hospital->specialties) > 0)
             <div class="bg-white shadow rounded-lg">
                 <div class="px-6 py-4 border-b border-gray-200">
                     <h3 class="text-lg font-medium text-gray-900">Specialties</h3>
                 </div>
                 <div class="px-6 py-4">
                     <div class="flex flex-wrap gap-2">
-                        @foreach($clinic->specialties as $specialty)
+                        @foreach($hospital->specialties as $specialty)
                         <span class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {{ $specialty }}
                         </span>
-                        @endforeach
-                    </div>
-                </div>
-            </div>
-            @endif
-
-            <!-- Operating Hours -->
-            @if($clinic->operating_hours && is_array($clinic->operating_hours) && count($clinic->operating_hours) > 0)
-            <div class="bg-white shadow rounded-lg">
-                <div class="px-6 py-4 border-b border-gray-200">
-                    <h3 class="text-lg font-medium text-gray-900">Operating Hours</h3>
-                </div>
-                <div class="px-6 py-4">
-                    <div class="space-y-2">
-                        @foreach($clinic->operating_hours as $hours)
-                        <div class="flex justify-between items-center">
-                            <span class="text-sm font-medium text-gray-900">{{ $hours['day'] }}</span>
-                            <span class="text-sm text-gray-500">{{ $hours['open_time'] }} - {{ $hours['close_time'] }}</span>
-                        </div>
                         @endforeach
                     </div>
                 </div>
@@ -131,15 +140,15 @@
                 <div class="px-6 py-4 space-y-4">
                     <div class="flex items-center justify-between">
                         <span class="text-sm text-gray-500">Status</span>
-                        <span class="text-sm font-medium text-gray-900">{{ $clinic->is_active ? 'Active' : 'Inactive' }}</span>
+                        <span class="text-sm font-medium text-gray-900">{{ $hospital->is_active ? 'Active' : 'Inactive' }}</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <span class="text-sm text-gray-500">Created</span>
-                        <span class="text-sm font-medium text-gray-900">{{ $clinic->created_at->format('M d, Y') }}</span>
+                        <span class="text-sm font-medium text-gray-900">{{ $hospital->created_at->format('M d, Y') }}</span>
                     </div>
                     <div class="flex items-center justify-between">
                         <span class="text-sm text-gray-500">Last Updated</span>
-                        <span class="text-sm font-medium text-gray-900">{{ $clinic->updated_at->format('M d, Y') }}</span>
+                        <span class="text-sm font-medium text-gray-900">{{ $hospital->updated_at->format('M d, Y') }}</span>
                     </div>
                 </div>
             </div>
@@ -150,17 +159,17 @@
                     <h3 class="text-lg font-medium text-gray-900">Actions</h3>
                 </div>
                 <div class="px-6 py-4 space-y-3">
-                    <a href="{{ route('admin.clinics.edit', $clinic) }}" 
+                    <a href="{{ route('admin.hospitals.edit', $hospital) }}" 
                        class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                        Edit Clinic
+                        Edit Hospital
                     </a>
-                    <form action="{{ route('admin.clinics.destroy', $clinic) }}" method="POST" class="w-full" 
-                          onsubmit="return confirm('Are you sure you want to delete this clinic?')">
+                    <form action="{{ route('admin.hospitals.destroy', $hospital) }}" method="POST" class="w-full" 
+                          onsubmit="return confirm('Are you sure you want to delete this hospital?')">
                         @csrf
                         @method('DELETE')
                         <button type="submit" 
                                 class="w-full inline-flex justify-center items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
-                            Delete Clinic
+                            Delete Hospital
                         </button>
                     </form>
                 </div>

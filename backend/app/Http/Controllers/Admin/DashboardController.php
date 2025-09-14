@@ -38,6 +38,19 @@ class DashboardController extends Controller
                                                ->whereMonth('created_at', $currentMonth)
                                                ->whereYear('created_at', $currentYear)
                                                ->sum('amount'),
+            // Revenue breakdown for doughnut chart
+            'completed_revenue' => PaymentTransaction::where('status', 'completed')
+                                                   ->whereMonth('created_at', $currentMonth)
+                                                   ->whereYear('created_at', $currentYear)
+                                                   ->sum('amount'),
+            'pending_revenue' => PaymentTransaction::where('status', 'pending')
+                                                 ->whereMonth('created_at', $currentMonth)
+                                                 ->whereYear('created_at', $currentYear)
+                                                 ->sum('amount'),
+            'failed_revenue' => PaymentTransaction::where('status', 'failed')
+                                                ->whereMonth('created_at', $currentMonth)
+                                                ->whereYear('created_at', $currentYear)
+                                                ->sum('amount'),
         ];
         
         // Monthly commission trends (last 6 months)
@@ -56,12 +69,25 @@ class DashboardController extends Controller
                 $date = Carbon::createFromDate($item->year, $item->month, 1);
                 return [
                     'month' => $date->format('M Y'),
-                    'commission' => $item->total_commission,
-                    'transactions' => $item->total_transactions,
+                    'commission' => (float) $item->total_commission,
+                    'transactions' => (int) $item->total_transactions,
                 ];
             })
             ->reverse()
             ->values();
+        
+        // If no commission data, create empty data for the last 6 months
+        if ($commissionTrends->isEmpty()) {
+            $commissionTrends = collect();
+            for ($i = 5; $i >= 0; $i--) {
+                $date = Carbon::now()->subMonths($i);
+                $commissionTrends->push([
+                    'month' => $date->format('M Y'),
+                    'commission' => 0,
+                    'transactions' => 0,
+                ]);
+            }
+        }
         
         // Top performing agents
         $topAgents = User::selectRaw('
@@ -87,7 +113,7 @@ class DashboardController extends Controller
             ->map(function ($member) {
                 return [
                     'type' => 'member_registered',
-                    'message' => "New member {$member->name} registered by {$member->agent->name}",
+                    'message' => "New member {$member->name} registered by " . ($member->agent ? $member->agent->name : 'Unknown Agent'),
                     'time' => $member->created_at->diffForHumans(),
                     'icon' => 'user-plus',
                     'color' => 'text-blue-600',
@@ -102,7 +128,7 @@ class DashboardController extends Controller
             ->map(function ($commission) {
                 return [
                     'type' => 'commission_earned',
-                    'message' => "{$commission->agent->name} earned RM {$commission->commission_amount} from {$commission->product->name}",
+                    'message' => ($commission->agent ? $commission->agent->name : 'Unknown Agent') . " earned RM " . number_format($commission->commission_amount, 2) . " from " . ($commission->product ? $commission->product->name : 'Unknown Product'),
                     'time' => $commission->created_at->diffForHumans(),
                     'icon' => 'dollar-sign',
                     'color' => 'text-green-600',
@@ -117,7 +143,7 @@ class DashboardController extends Controller
             ->map(function ($payment) {
                 return [
                     'type' => 'payment_received',
-                    'message' => "Payment of RM {$payment->amount} received from {$payment->member->name}",
+                    'message' => "Payment of RM " . number_format($payment->amount, 2) . " received from " . ($payment->member ? $payment->member->name : 'Unknown Member'),
                     'time' => $payment->created_at->diffForHumans(),
                     'icon' => 'credit-card',
                     'color' => 'text-purple-600',
@@ -143,9 +169,21 @@ class DashboardController extends Controller
             ->map(function ($item) {
                 return [
                     'date' => Carbon::parse($item->date)->format('M d'),
-                    'count' => $item->count,
+                    'count' => (int) $item->count,
                 ];
             });
+        
+        // If no member growth data, create empty data for the last 30 days
+        if ($memberGrowth->isEmpty()) {
+            $memberGrowth = collect();
+            for ($i = 29; $i >= 0; $i--) {
+                $date = Carbon::now()->subDays($i);
+                $memberGrowth->push([
+                    'date' => $date->format('M d'),
+                    'count' => 0,
+                ]);
+            }
+        }
         
         return view('admin.dashboard', compact(
             'metrics',

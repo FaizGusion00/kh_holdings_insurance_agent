@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Http\Request;
 use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\MemberController;
@@ -53,15 +54,47 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
     Route::resource('clinics', ClinicController::class);
     
     // Payments Management
-    Route::resource('payments', PaymentController::class);
     Route::get('payments/pending', [PaymentController::class, 'pending'])->name('payments.pending');
+    Route::post('payments/bulk-approve', [PaymentController::class, 'bulkApprove'])->name('payments.bulk-approve');
     Route::post('payments/{payment}/approve', [PaymentController::class, 'approve'])->name('payments.approve');
+    Route::resource('payments', PaymentController::class);
     
     // Reports
     Route::get('reports/sales', [ReportController::class, 'sales'])->name('reports.sales');
     Route::get('reports/commissions', [ReportController::class, 'commissions'])->name('reports.commissions');
     Route::get('reports/members', [ReportController::class, 'members'])->name('reports.members');
     Route::get('reports/export/{type}', [ReportController::class, 'export'])->name('reports.export');
+});
+
+// Test routes for reports (temporary)
+Route::get('/test-sales-report', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->sales(new Illuminate\Http\Request());
+});
+
+Route::get('/test-commissions-report', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->commissions(new Illuminate\Http\Request());
+});
+
+Route::get('/test-members-report', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->members(new Illuminate\Http\Request());
+});
+
+Route::get('/test-export-sales', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->export(new Illuminate\Http\Request(), 'sales');
+});
+
+Route::get('/test-export-commissions', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->export(new Illuminate\Http\Request(), 'commissions');
+});
+
+Route::get('/test-export-members', function () {
+    $controller = new App\Http\Controllers\Admin\ReportController();
+    return $controller->export(new Illuminate\Http\Request(), 'members');
 });
 
 // Fallback route

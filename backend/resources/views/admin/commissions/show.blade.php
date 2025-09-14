@@ -87,13 +87,13 @@
                     <div class="flex items-center">
                         <div class="flex-shrink-0 h-12 w-12">
                             <div class="h-12 w-12 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center">
-                                <span class="text-white font-semibold text-sm">{{ substr($commission->user->name, 0, 1) }}</span>
+                                <span class="text-white font-semibold text-sm">{{ substr($commission->agent ? $commission->agent->name : 'N/A', 0, 1) }}</span>
                             </div>
                         </div>
                         <div class="ml-4">
-                            <div class="text-lg font-medium text-gray-900">{{ $commission->user->name }}</div>
-                            <div class="text-sm text-gray-500">{{ $commission->user->email }}</div>
-                            <div class="text-sm text-gray-500">Agent Code: {{ $commission->user->agent_code }}</div>
+                            <div class="text-lg font-medium text-gray-900">{{ $commission->agent ? $commission->agent->name : 'N/A' }}</div>
+                            <div class="text-sm text-gray-500">{{ $commission->agent ? $commission->agent->email : 'N/A' }}</div>
+                            <div class="text-sm text-gray-500">Agent Code: {{ $commission->agent ? $commission->agent->agent_code : 'N/A' }}</div>
                         </div>
                     </div>
                 </div>

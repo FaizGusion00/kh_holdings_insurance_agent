@@ -23,6 +23,14 @@ class ReportController extends Controller
         $dateFrom = $request->get('date_from', Carbon::now()->startOfMonth());
         $dateTo = $request->get('date_to', Carbon::now()->endOfMonth());
         
+        // Convert string dates to Carbon instances
+        if (is_string($dateFrom)) {
+            $dateFrom = Carbon::parse($dateFrom);
+        }
+        if (is_string($dateTo)) {
+            $dateTo = Carbon::parse($dateTo);
+        }
+        
         // Sales by product
         $salesByProduct = InsuranceProduct::withCount(['memberPolicies' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
@@ -30,74 +38,73 @@ class ReportController extends Controller
         ->withSum(['memberPolicies' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }], 'total_paid')
-        ->get();
+        ->get()
+        ->map(function ($product) {
+            $totalRevenue = $product->member_policies_sum_total_paid ?? 0;
+            $policiesCount = $product->member_policies_count ?? 0;
+            $allProductsTotal = InsuranceProduct::withSum('memberPolicies', 'total_paid')->get()->sum('member_policies_sum_total_paid');
+            
+            return (object) [
+                'name' => $product->name,
+                'category' => $product->product_type,
+                'policies_count' => $policiesCount,
+                'total_revenue' => $totalRevenue,
+                'market_share' => $allProductsTotal > 0 ? ($totalRevenue / $allProductsTotal) * 100 : 0,
+            ];
+        })->sortByDesc('total_revenue');
         
-        // Sales by agent
-        $salesByAgent = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
+        // Sales by agent (top performing agents)
+        $topAgents = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->withSum(['commissions' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }], 'commission_amount')
-        ->get();
-        
-        // Format top agents data for the view
-        $topAgents = $salesByAgent->map(function ($agent) {
+        ->get()
+        ->map(function ($agent) {
+            $policiesCount = $agent->members_count ?? 0;
+            $commissionEarned = $agent->commissions_sum_commission_amount ?? 0;
+            $totalRevenue = $commissionEarned * 10; // Estimate revenue from commissions
+            
             return (object) [
                 'name' => $agent->name,
                 'email' => $agent->email,
-                'policies_count' => $agent->members_count,
-                'total_revenue' => $agent->commissions_sum_commission_amount * 10, // Estimate revenue from commissions
-                'commission_earned' => $agent->commissions_sum_commission_amount,
+                'policies_count' => $policiesCount,
+                'total_revenue' => $totalRevenue,
+                'commission_earned' => $commissionEarned,
             ];
         })->sortByDesc('total_revenue')->take(10);
-        
-        // Monthly sales trend
-        $monthlySales = MemberPolicy::selectRaw('
-                DATE_FORMAT(created_at, "%Y-%m") as month,
-                COUNT(*) as total_policies,
-                SUM(total_paid) as total_amount
-            ')
-            ->whereBetween('created_at', [Carbon::now()->subMonths(11), Carbon::now()])
-            ->groupBy('month')
-            ->orderBy('month')
-            ->get();
-        
-        // Daily sales for current month
-        $dailySales = MemberPolicy::selectRaw('
-                DATE(created_at) as date,
-                COUNT(*) as total_policies,
-                SUM(total_paid) as total_amount
-            ')
-            ->whereMonth('created_at', Carbon::now()->month)
-            ->whereYear('created_at', Carbon::now()->year)
-            ->groupBy('date')
-            ->orderBy('date')
-            ->get();
         
         // Get products and agents for filtering
         $products = InsuranceProduct::where('is_active', true)->get();
         $agents = User::where('status', 'active')->get();
         
-        // Summary statistics
+        // Calculate summary statistics
+        $totalSales = $salesByProduct->sum('total_revenue');
+        $totalPolicies = $salesByProduct->sum('policies_count');
+        $averagePremium = $totalPolicies > 0 ? $totalSales / $totalPolicies : 0;
+        
+        // Calculate growth rate (compare with previous period)
+        $previousPeriodStart = $dateFrom->copy()->subDays($dateFrom->diffInDays($dateTo));
+        $previousPeriodEnd = $dateFrom->copy()->subDay();
+        $previousSales = MemberPolicy::whereBetween('created_at', [$previousPeriodStart, $previousPeriodEnd])->sum('total_paid');
+        $growthRate = $previousSales > 0 ? (($totalSales - $previousSales) / $previousSales) * 100 : 0;
+        
         $summary = [
-            'total_sales' => $salesByProduct->sum('member_policies_sum_total_paid'),
-            'total_policies' => $salesByProduct->sum('member_policies_count'),
-            'average_premium' => $salesByProduct->avg('member_policies_sum_total_paid'),
-            'growth_rate' => 15.5, // This should be calculated based on previous period
+            'total_sales' => $totalSales,
+            'total_policies' => $totalPolicies,
+            'average_premium' => $averagePremium,
+            'growth_rate' => $growthRate,
         ];
         
         return view('admin.reports.sales', compact(
             'salesByProduct',
-            'salesByAgent',
-            'monthlySales',
-            'dailySales',
+            'topAgents',
             'dateFrom',
             'dateTo',
             'products',
             'agents',
-            'summary',
-            'topAgents'
+            'summary'
         ));
     }
 
@@ -106,137 +113,99 @@ class ReportController extends Controller
      */
     public function commissions(Request $request)
     {
-        $month = $request->get('month', Carbon::now()->month);
-        $year = $request->get('year', Carbon::now()->year);
+        $dateFrom = $request->get('date_from', Carbon::now()->startOfMonth());
+        $dateTo = $request->get('date_to', Carbon::now()->endOfMonth());
+        
+        // Convert string dates to Carbon instances
+        if (is_string($dateFrom)) {
+            $dateFrom = Carbon::parse($dateFrom);
+        }
+        if (is_string($dateTo)) {
+            $dateTo = Carbon::parse($dateTo);
+        }
         
         // Commission by agent
-        $commissionByAgent = User::withSum(['commissions' => function ($query) use ($month, $year) {
-            $query->where('month', $month)->where('year', $year);
+        $commissionsByAgent = User::withSum(['commissions' => function ($query) use ($dateFrom, $dateTo) {
+            $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }], 'commission_amount')
-        ->withCount(['commissions' => function ($query) use ($month, $year) {
-            $query->where('month', $month)->where('year', $year);
+        ->withCount(['commissions' => function ($query) use ($dateFrom, $dateTo) {
+            $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->get()
         ->filter(function ($user) {
-            return $user->commissions_sum_commission_amount > 0;
-        });
-        
-        // Format commissions by agent data for the view
-        $commissionsByAgent = $commissionByAgent->map(function ($agent) use ($month, $year) {
+            return ($user->commissions_sum_commission_amount ?? 0) > 0;
+        })
+        ->map(function ($agent) use ($dateFrom, $dateTo) {
+            $totalCommissions = $agent->commissions_sum_commission_amount ?? 0;
+            
             $paidCommissions = $agent->commissions()
-                ->where('month', $month)
-                ->where('year', $year)
+                ->whereBetween('created_at', [$dateFrom, $dateTo])
                 ->where('status', 'paid')
                 ->sum('commission_amount');
                 
             $pendingCommissions = $agent->commissions()
-                ->where('month', $month)
-                ->where('year', $year)
+                ->whereBetween('created_at', [$dateFrom, $dateTo])
                 ->where('status', 'pending')
                 ->sum('commission_amount');
                 
             return (object) [
                 'name' => $agent->name,
                 'email' => $agent->email,
-                'total_commissions' => $agent->commissions_sum_commission_amount,
+                'total_commissions' => $totalCommissions,
                 'paid_commissions' => $paidCommissions,
                 'pending_commissions' => $pendingCommissions,
-                'policies_count' => $agent->commissions_count,
+                'policies_count' => $agent->commissions_count ?? 0,
             ];
         })->sortByDesc('total_commissions');
         
         // Commission by product
-        $commissionByProduct = InsuranceProduct::withSum(['commissions' => function ($query) use ($month, $year) {
-            $query->where('month', $month)->where('year', $year);
+        $commissionsByProduct = InsuranceProduct::withSum(['commissions' => function ($query) use ($dateFrom, $dateTo) {
+            $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }], 'commission_amount')
-        ->withCount(['commissions' => function ($query) use ($month, $year) {
-            $query->where('month', $month)->where('year', $year);
+        ->withCount(['commissions' => function ($query) use ($dateFrom, $dateTo) {
+            $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->get()
         ->filter(function ($product) {
-            return $product->commissions_sum_commission_amount > 0;
-        });
-        
-        // Format commissions by product data for the view
-        $commissionsByProduct = $commissionByProduct->map(function ($product) {
+            return ($product->commissions_sum_commission_amount ?? 0) > 0;
+        })
+        ->map(function ($product) {
+            $totalCommissions = $product->commissions_sum_commission_amount ?? 0;
+            $policiesCount = $product->commissions_count ?? 0;
+            $averageCommissionRate = $policiesCount > 0 ? ($totalCommissions / $policiesCount) * 100 : 0;
+            
             return (object) [
                 'name' => $product->name,
                 'category' => $product->product_type,
-                'total_commissions' => $product->commissions_sum_commission_amount,
-                'commission_rate' => 10, // Default rate, you can calculate this based on product rules
-                'policies_count' => $product->commissions_count,
+                'total_commissions' => $totalCommissions,
+                'average_commission_rate' => $averageCommissionRate,
+                'policies_count' => $policiesCount,
             ];
         })->sortByDesc('total_commissions');
-        
-        // Commission by type
-        $commissionByType = Commission::selectRaw('
-                commission_type,
-                COUNT(*) as total_transactions,
-                SUM(commission_amount) as total_amount
-            ')
-            ->where('month', $month)
-            ->where('year', $year)
-            ->groupBy('commission_type')
-            ->get();
-        
-        // Commission by tier level
-        $commissionByTier = Commission::selectRaw('
-                tier_level,
-                COUNT(*) as total_transactions,
-                SUM(commission_amount) as total_amount
-            ')
-            ->where('month', $month)
-            ->where('year', $year)
-            ->groupBy('tier_level')
-            ->orderBy('tier_level')
-            ->get();
-        
-        // Monthly commission trend
-        $monthlyCommissionTrend = Commission::selectRaw('
-                month, year,
-                COUNT(*) as total_transactions,
-                SUM(commission_amount) as total_amount
-            ')
-            ->where('year', '>=', $year - 1)
-            ->groupBy('month', 'year')
-            ->orderBy('year', 'desc')
-            ->orderBy('month', 'desc')
-            ->limit(12)
-            ->get()
-            ->map(function ($item) {
-                $date = Carbon::createFromDate($item->year, $item->month, 1);
-                return [
-                    'month' => $date->format('M Y'),
-                    'transactions' => $item->total_transactions,
-                    'amount' => $item->total_amount,
-                ];
-            })
-            ->reverse()
-            ->values();
         
         // Get agents for filtering
         $agents = User::where('status', 'active')->get();
         
         // Summary statistics
+        $totalCommissions = $commissionsByAgent->sum('total_commissions');
+        $paidCommissions = $commissionsByAgent->sum('paid_commissions');
+        $pendingCommissions = $commissionsByAgent->sum('pending_commissions');
+        $averageCommission = $commissionsByAgent->count() > 0 ? $totalCommissions / $commissionsByAgent->count() : 0;
+        
         $summary = [
-            'total_commissions' => $commissionByAgent->sum('commissions_sum_commission_amount'),
-            'paid_commissions' => Commission::where('month', $month)->where('year', $year)->where('status', 'paid')->sum('commission_amount'),
-            'pending_commissions' => Commission::where('month', $month)->where('year', $year)->where('status', 'pending')->sum('commission_amount'),
-            'average_commission' => $commissionByAgent->avg('commissions_sum_commission_amount'),
+            'total_commissions' => $totalCommissions,
+            'paid_commissions' => $paidCommissions,
+            'pending_commissions' => $pendingCommissions,
+            'average_commission' => $averageCommission,
         ];
         
         return view('admin.reports.commissions', compact(
-            'commissionByAgent',
-            'commissionByProduct',
-            'commissionByType',
-            'commissionByTier',
-            'monthlyCommissionTrend',
-            'month',
-            'year',
-            'agents',
-            'summary',
             'commissionsByAgent',
-            'commissionsByProduct'
+            'commissionsByProduct',
+            'dateFrom',
+            'dateTo',
+            'agents',
+            'summary'
         ));
     }
 
@@ -248,7 +217,15 @@ class ReportController extends Controller
         $dateFrom = $request->get('date_from', Carbon::now()->startOfMonth());
         $dateTo = $request->get('date_to', Carbon::now()->endOfMonth());
         
-        // Member registration by month
+        // Convert string dates to Carbon instances
+        if (is_string($dateFrom)) {
+            $dateFrom = Carbon::parse($dateFrom);
+        }
+        if (is_string($dateTo)) {
+            $dateTo = Carbon::parse($dateTo);
+        }
+        
+        // Member registration by month (last 12 months)
         $memberRegistrationByMonth = Member::selectRaw('
                 DATE_FORMAT(created_at, "%Y-%m") as month,
                 COUNT(*) as total_members
@@ -259,62 +236,50 @@ class ReportController extends Controller
             ->get();
         
         // Member registration by agent
-        $memberRegistrationByAgent = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
+        $membersByAgent = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->get()
-        ->sortByDesc('members_count');
-        
-        // Member status distribution
-        $memberStatusDistribution = Member::selectRaw('
-                status,
-                COUNT(*) as total_count
-            ')
-            ->groupBy('status')
-            ->get();
-        
-        // Member by age group
-        $memberByAgeGroup = Member::selectRaw('
-                CASE 
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 25 THEN "18-24"
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 35 THEN "25-34"
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 45 THEN "35-44"
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 55 THEN "45-54"
-                    WHEN TIMESTAMPDIFF(YEAR, date_of_birth, CURDATE()) < 65 THEN "55-64"
-                    ELSE "65+"
-                END as age_group,
-                COUNT(*) as total_count
-            ')
-            ->groupBy('age_group')
-            ->orderBy('age_group')
-            ->get();
-        
-        // Member by gender
-        $memberByGender = Member::selectRaw('
-                gender,
-                COUNT(*) as total_count
-            ')
-            ->groupBy('gender')
-            ->get();
-        
-        // Member by state
-        $memberByState = Member::selectRaw('
-                state,
-                COUNT(*) as total_count
-            ')
-            ->groupBy('state')
-            ->orderBy('total_count', 'desc')
-            ->get();
+        ->map(function ($agent) {
+            $totalMembers = $agent->members_count ?? 0;
+            $activeMembers = $agent->members()->where('status', 'active')->count();
+            $newMembersMonth = $agent->members()
+                ->whereMonth('created_at', Carbon::now()->month)
+                ->whereYear('created_at', Carbon::now()->year)
+                ->count();
+            
+            return (object) [
+                'name' => $agent->name,
+                'email' => $agent->email,
+                'total_members' => $totalMembers,
+                'active_members' => $activeMembers,
+                'new_members_month' => $newMembersMonth,
+            ];
+        })
+        ->sortByDesc('total_members');
         
         // Get agents for filtering
         $agents = User::where('status', 'active')->get();
         
-        // Summary statistics
+        // Calculate summary statistics
+        $totalMembers = Member::count();
+        $newMembersMonth = Member::whereMonth('created_at', Carbon::now()->month)
+            ->whereYear('created_at', Carbon::now()->year)
+            ->count();
+        $activeMembers = Member::where('status', 'active')->count();
+        
+        // Calculate growth rate (compare with previous month)
+        $previousMonth = Carbon::now()->subMonth();
+        $previousMonthMembers = Member::whereMonth('created_at', $previousMonth->month)
+            ->whereYear('created_at', $previousMonth->year)
+            ->count();
+        $growthRate = $previousMonthMembers > 0 ? (($newMembersMonth - $previousMonthMembers) / $previousMonthMembers) * 100 : 0;
+        
         $summary = [
-            'total_members' => Member::count(),
-            'new_members_month' => Member::whereMonth('created_at', Carbon::now()->month)->whereYear('created_at', Carbon::now()->year)->count(),
-            'active_members' => Member::where('status', 'active')->count(),
-            'growth_rate' => 12.5, // This should be calculated based on previous period
+            'total_members' => $totalMembers,
+            'new_members_month' => $newMembersMonth,
+            'active_members' => $activeMembers,
+            'growth_rate' => $growthRate,
         ];
         
         // Format registration trend data
@@ -336,27 +301,7 @@ class ReportController extends Controller
             ];
         });
         
-        // Format members by agent data
-        $membersByAgent = $memberRegistrationByAgent->map(function ($agent) {
-            return (object) [
-                'name' => $agent->name,
-                'email' => $agent->email,
-                'total_members' => $agent->members_count,
-                'active_members' => $agent->members()->where('status', 'active')->count(),
-                'new_members_month' => $agent->members()
-                    ->whereMonth('created_at', Carbon::now()->month)
-                    ->whereYear('created_at', Carbon::now()->year)
-                    ->count(),
-            ];
-        });
-        
         return view('admin.reports.members', compact(
-            'memberRegistrationByMonth',
-            'memberRegistrationByAgent',
-            'memberStatusDistribution',
-            'memberByAgeGroup',
-            'memberByGender',
-            'memberByState',
             'dateFrom',
             'dateTo',
             'agents',
@@ -374,6 +319,14 @@ class ReportController extends Controller
         $dateFrom = $request->get('date_from', Carbon::now()->startOfMonth());
         $dateTo = $request->get('date_to', Carbon::now()->endOfMonth());
         
+        // Convert string dates to Carbon instances
+        if (is_string($dateFrom)) {
+            $dateFrom = Carbon::parse($dateFrom);
+        }
+        if (is_string($dateTo)) {
+            $dateTo = Carbon::parse($dateTo);
+        }
+        
         switch ($type) {
             case 'sales':
                 $data = $this->getSalesExportData($dateFrom, $dateTo);
@@ -381,10 +334,8 @@ class ReportController extends Controller
                 break;
                 
             case 'commissions':
-                $month = $request->get('month', Carbon::now()->month);
-                $year = $request->get('year', Carbon::now()->year);
-                $data = $this->getCommissionExportData($month, $year);
-                $filename = "commission_report_{$year}_{$month}.csv";
+                $data = $this->getCommissionExportData($dateFrom, $dateTo);
+                $filename = "commission_report_{$dateFrom->format('Y-m-d')}_{$dateTo->format('Y-m-d')}.csv";
                 break;
                 
             case 'members':
@@ -444,21 +395,21 @@ class ReportController extends Controller
     /**
      * Get commission export data.
      */
-    private function getCommissionExportData($month, $year)
+    private function getCommissionExportData($dateFrom, $dateTo)
     {
         return Commission::with(['agent', 'product'])
-            ->where('month', $month)
-            ->where('year', $year)
+            ->whereBetween('created_at', [$dateFrom, $dateTo])
             ->get()
             ->map(function ($commission) {
                 return [
                     'Commission ID' => $commission->id,
-                    'Agent Name' => $commission->agent->name,
-                    'Product Name' => $commission->product->name,
+                    'Agent Name' => $commission->agent->name ?? 'N/A',
+                    'Product Name' => $commission->product->name ?? 'N/A',
                     'Amount' => $commission->commission_amount,
                     'Type' => $commission->commission_type,
                     'Tier Level' => $commission->tier_level,
                     'Status' => $commission->status,
+                    'Created Date' => $commission->created_at->format('Y-m-d'),
                 ];
             })
             ->toArray();
@@ -479,9 +430,9 @@ class ReportController extends Controller
                     'NRIC' => $member->nric,
                     'Phone' => $member->phone,
                     'Email' => $member->email,
-                    'Agent Name' => $member->agent->name,
+                    'Agent Name' => $member->agent->name ?? 'N/A',
                     'Status' => $member->status,
-                    'Registration Date' => $member->registration_date->format('Y-m-d'),
+                    'Registration Date' => $member->registration_date ? $member->registration_date->format('Y-m-d') : $member->created_at->format('Y-m-d'),
                 ];
             })
             ->toArray();
