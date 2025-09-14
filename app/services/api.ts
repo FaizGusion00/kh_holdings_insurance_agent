@@ -659,6 +659,19 @@ class ApiService {
     return await this.handleResponse<any>(response);
   }
 
+  async registerMedicalInsuranceExternal(registrationData: any): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/register-external`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify(registrationData)
+    });
+
+    return await this.handleResponse<any>(response);
+  }
+
   async getMedicalInsuranceRegistrations(): Promise<ApiResponse<any>> {
     const response = await fetch(`${API_BASE_URL}/medical-insurance/registrations`, {
       method: 'GET',
@@ -769,6 +782,67 @@ class ApiService {
     });
 
     return await this.handleResponse<any>(response);
+  }
+
+  // Plans Methods
+  async getPlans(): Promise<ApiResponse<any[]>> {
+    const response = await fetch(`${API_BASE_URL}/plans`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any[]>(response);
+  }
+
+  async getPlan(id: number): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/plans/${id}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async getPlanPricing(id: number): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/plans/${id}/pricing`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  // Agent Wallet Methods
+  async getAgentWallet(): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/agent/wallet`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async requestWithdrawal(data: { amount: number; notes?: string }): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/agent/wallet/withdraw`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async getWithdrawalHistory(page: number = 1): Promise<ApiResponse<{ data: any[]; current_page: number; total: number }>> {
+    const params = new URLSearchParams({ page: String(page) });
+    const response = await fetch(`${API_BASE_URL}/agent/wallet/withdrawals?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{ data: any[]; current_page: number; total: number }>(response);
+  }
+
+  async getWalletTransactions(page: number = 1): Promise<ApiResponse<{ data: any[]; current_page: number; total: number }>> {
+    const params = new URLSearchParams({ page: String(page) });
+    const response = await fetch(`${API_BASE_URL}/agent/wallet/transactions?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{ data: any[]; current_page: number; total: number }>(response);
   }
 }
 

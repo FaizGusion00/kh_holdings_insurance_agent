@@ -55,44 +55,52 @@
                             @enderror
                         </div>
 
-                        <!-- Policy Selection -->
+
+                        <!-- Base Amount -->
                         <div>
-                            <label for="policy_id" class="block text-sm font-medium text-gray-700">Policy</label>
-                            <select id="policy_id" name="policy_id" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                                <option value="">Select a policy</option>
-                                @foreach($policies as $policy)
-                                    <option value="{{ $policy->id }}" {{ old('policy_id') == $policy->id ? 'selected' : '' }}>
-                                        {{ $policy->policy_number }} - {{ $policy->member->name }}
-                                    </option>
-                                @endforeach
-                            </select>
-                            @error('policy_id')
+                            <label for="base_amount" class="block text-sm font-medium text-gray-700">Base Amount (RM)</label>
+                            <input type="number" name="base_amount" id="base_amount" value="{{ old('base_amount') }}" step="0.01" min="0" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" placeholder="Enter base amount">
+                            @error('base_amount')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
                             @enderror
                         </div>
 
-                        <!-- Commission Details -->
+                        <!-- Commission Percentage -->
+                        <div>
+                            <label for="commission_percentage" class="block text-sm font-medium text-gray-700">Commission Percentage (%)</label>
+                            <input type="number" name="commission_percentage" id="commission_percentage" value="{{ old('commission_percentage') }}" step="0.01" min="0" max="100" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm" placeholder="Enter percentage">
+                            @error('commission_percentage')
+                                <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
+                            @enderror
+                        </div>
+
+                        <!-- Commission Amount (Auto-calculated) -->
                         <div>
                             <label for="commission_amount" class="block text-sm font-medium text-gray-700">Commission Amount (RM)</label>
-                            <input type="number" name="commission_amount" id="commission_amount" value="{{ old('commission_amount') }}" step="0.01" min="0" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                            <input type="number" name="commission_amount" id="commission_amount" value="{{ old('commission_amount') }}" step="0.01" min="0" readonly class="mt-1 block w-full rounded-md border-gray-300 shadow-sm bg-gray-50 sm:text-sm" placeholder="Auto-calculated">
+                            <p class="mt-1 text-xs text-gray-500">This will be calculated automatically based on base amount and percentage</p>
                             @error('commission_amount')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
                             @enderror
                         </div>
 
+                        <!-- Payment Frequency -->
                         <div>
-                            <label for="commission_type" class="block text-sm font-medium text-gray-700">Commission Type</label>
-                            <select id="commission_type" name="commission_type" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
-                                <option value="">Select commission type</option>
-                                <option value="direct" {{ old('commission_type') == 'direct' ? 'selected' : '' }}>Direct</option>
-                                <option value="override" {{ old('commission_type') == 'override' ? 'selected' : '' }}>Override</option>
-                                <option value="bonus" {{ old('commission_type') == 'bonus' ? 'selected' : '' }}>Bonus</option>
-                                <option value="renewal" {{ old('commission_type') == 'renewal' ? 'selected' : '' }}>Renewal</option>
+                            <label for="payment_frequency" class="block text-sm font-medium text-gray-700">Payment Frequency</label>
+                            <select id="payment_frequency" name="payment_frequency" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm">
+                                <option value="">Select payment frequency</option>
+                                <option value="monthly" {{ old('payment_frequency') == 'monthly' ? 'selected' : '' }}>Monthly</option>
+                                <option value="quarterly" {{ old('payment_frequency') == 'quarterly' ? 'selected' : '' }}>Quarterly</option>
+                                <option value="semi_annually" {{ old('payment_frequency') == 'semi_annually' ? 'selected' : '' }}>Semi-Annually</option>
+                                <option value="annually" {{ old('payment_frequency') == 'annually' ? 'selected' : '' }}>Annually</option>
                             </select>
-                            @error('commission_type')
+                            @error('payment_frequency')
                                 <p class="mt-1 text-sm text-red-600">{{ $message }}</p>
                             @enderror
                         </div>
+
+                        <!-- Commission Type - Hidden field, always direct -->
+                        <input type="hidden" name="commission_type" value="direct">
 
                         <div>
                             <label for="tier_level" class="block text-sm font-medium text-gray-700">Tier Level</label>
@@ -176,4 +184,23 @@
         </form>
     </div>
 </div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const baseAmountInput = document.getElementById('base_amount');
+    const percentageInput = document.getElementById('commission_percentage');
+    const commissionAmountInput = document.getElementById('commission_amount');
+    
+    function calculateCommission() {
+        const baseAmount = parseFloat(baseAmountInput.value) || 0;
+        const percentage = parseFloat(percentageInput.value) || 0;
+        const commissionAmount = (baseAmount * percentage) / 100;
+        
+        commissionAmountInput.value = commissionAmount.toFixed(2);
+    }
+    
+    baseAmountInput.addEventListener('input', calculateCommission);
+    percentageInput.addEventListener('input', calculateCommission);
+});
+</script>
 @endsection

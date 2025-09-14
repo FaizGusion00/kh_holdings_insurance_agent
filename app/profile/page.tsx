@@ -3,7 +3,34 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
-import { apiService, User, PaymentTransaction, PaymentMandate } from "../services/api";
+import { apiService, PaymentTransaction, PaymentMandate, DashboardStats, RecentActivity } from "../services/api";
+import {
+    Chart as ChartJS,
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend,
+    ArcElement,
+} from 'chart.js';
+import { Line } from 'react-chartjs-2';
+
+// Register Chart.js components
+ChartJS.register(
+    CategoryScale,
+    LinearScale,
+    PointElement,
+    LineElement,
+    BarElement,
+    Title,
+    Tooltip,
+    Legend,
+    ArcElement
+);
+
 import { 
     LogOut, 
     Eye, 
@@ -22,13 +49,20 @@ import {
     ArrowLeft,
     Shield,
     Phone,
-    Plus
+    Plus,
+    XCircle,
+    Wallet,
+    Target,
+    Users,
+    Activity,
+    Clock,
+    BarChart3
 } from "lucide-react";
 import { PageTransition, FadeIn, StaggeredContainer, StaggeredItem } from "../(ui)/components/PageTransition";
 import { motion, AnimatePresence } from "framer-motion";
 import MedicalInsuranceRegistrationForm from "../(ui)/components/MedicalInsuranceRegistrationForm";
 
-type TabType = 'overview' | 'profile' | 'payment-settings' | 'payment-history' | 'medical-insurance' | 'referrer';
+type TabType = 'overview' | 'profile' | 'policy-view' | 'payment-history' | 'medical-insurance' | 'referrer';
 type ReferrerSubTab = 'referral' | 'bank-info' | 'commission';
 
 interface PaymentData {
@@ -53,6 +87,13 @@ export default function ProfilePage() {
     const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
     const [showLogoutConfirmModal, setShowLogoutConfirmModal] = useState(false);
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
+    const [showPolicyModal, setShowPolicyModal] = useState(false);
+    const [selectedPolicy, setSelectedPolicy] = useState<any>(null);
+    
+    // Medical Insurance search and pagination states
+    const [searchQuery, setSearchQuery] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage] = useState(5);
     const [phoneChangeStep, setPhoneChangeStep] = useState<'initial' | 'tac-verification' | 'new-phone' | 'new-tac-verification' | 'success'>('initial');
     const [tacCode, setTacCode] = useState('');
     const [newPhoneNumber, setNewPhoneNumber] = useState('');
@@ -73,6 +114,13 @@ export default function ProfilePage() {
     const [selectedClient, setSelectedClient] = useState<any | null>(null);
     const [clientPayments, setClientPayments] = useState<any[]>([]);
     const [showClientModal, setShowClientModal] = useState(false);
+    
+    // Enhanced overview states
+    const [dashboardStats, setDashboardStats] = useState<DashboardStats | null>(null);
+    const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
+    const [walletData, setWalletData] = useState<any>(null);
+    const [commissionHistory, setCommissionHistory] = useState<any[]>([]);
+    const [isOverviewLoading, setIsOverviewLoading] = useState(false);
 
     // Update profile form when user data changes
     useEffect(() => {
@@ -89,12 +137,43 @@ export default function ProfilePage() {
         }
     }, [user]);
 
+    // Load overview data
+    const loadOverviewData = async () => {
+        setIsOverviewLoading(true);
+        try {
+            const [dashboardResponse, walletResponse, commissionResponse] = await Promise.all([
+                apiService.getDashboardStats(),
+                apiService.getAgentWallet(),
+                apiService.getWalletTransactions(1)
+            ]);
+            
+            if (dashboardResponse.success && dashboardResponse.data) {
+                setDashboardStats(dashboardResponse.data.stats);
+                setRecentActivities(dashboardResponse.data.recent_activities || []);
+            }
+            
+            if (walletResponse.success && walletResponse.data) {
+                setWalletData(walletResponse.data);
+            }
+            
+            if (commissionResponse.success && commissionResponse.data) {
+                setCommissionHistory(commissionResponse.data.data || []);
+            }
+        } catch (error) {
+            console.error('Failed to load overview data:', error);
+        } finally {
+            setIsOverviewLoading(false);
+        }
+    };
+
     // Load payments and mandates on enter relevant tabs
     useEffect(() => {
         async function loadData() {
             setError("");
             if (!user) return;
-            if (activeTab === 'payment-history') {
+            if (activeTab === 'overview') {
+                loadOverviewData();
+            } else if (activeTab === 'payment-history') {
                 setIsLoading(true);
                 try {
                     const res = await apiService.getPaymentHistory(1);
@@ -113,7 +192,7 @@ export default function ProfilePage() {
                     const gp = await apiService.getGatewayPaymentHistory(1);
                     if (gp.success && gp.data) {
                         setGatewayPayments(gp.data.data || []);
-                    }
+            }
                 } catch {}
             }
             if (activeTab === 'medical-insurance') {
@@ -127,19 +206,6 @@ export default function ProfilePage() {
                     }
                 } catch (e) {
                     setError(e instanceof Error ? e.message : 'Failed to load clients');
-                } finally {
-                    setIsLoading(false);
-                }
-            }
-            if (activeTab === 'payment-settings') {
-                setIsLoading(true);
-                try {
-                    const res = await apiService.getPaymentMandates();
-                    if (res.success && res.data) {
-                        setMandates(res.data || []);
-                    }
-                } catch (e) {
-                    // ignore
                 } finally {
                     setIsLoading(false);
                 }
@@ -194,6 +260,34 @@ export default function ProfilePage() {
 
     const handleMedicalInsuranceRegistration = () => {
         setShowMedicalInsuranceModal(true);
+    };
+
+    const handleViewPolicy = (policy: any) => {
+        setSelectedPolicy(policy);
+        setShowPolicyModal(true);
+    };
+
+    // Medical Insurance search and pagination logic
+    const filteredClients = clients.filter(client => 
+        client.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        client.nric?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        client.phone_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        client.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        client.plan_name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = startIndex + itemsPerPage;
+    const paginatedClients = filteredClients.slice(startIndex, endIndex);
+
+    const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        setSearchQuery(e.target.value);
+        setCurrentPage(1); // Reset to first page when searching
+    };
+
+    const handlePageChange = (page: number) => {
+        setCurrentPage(page);
     };
 
     const handleMedicalInsuranceSuccess = async (result: any) => {
@@ -325,8 +419,8 @@ export default function ProfilePage() {
     const navigationItems = [
         { id: 'overview', label: 'Overview', icon: Eye, active: activeTab === 'overview' },
         { id: 'profile', label: 'My Profile', icon: UserIcon, active: activeTab === 'profile' },
-        { id: 'payment-settings', label: 'Payment Settings', icon: DollarSign, active: activeTab === 'payment-settings' },
-        { id: 'payment-history', label: 'Payment History', icon: FileText, active: activeTab === 'payment-history' },
+        { id: 'policy-view', label: 'Policy View', icon: FileText, active: activeTab === 'policy-view' },
+        { id: 'payment-history', label: 'Payment History', icon: DollarSign, active: activeTab === 'payment-history' },
         { id: 'medical-insurance', label: 'Medical Insurance', icon: Shield, active: activeTab === 'medical-insurance' },
         { id: 'referrer', label: 'Referrer', icon: Crown, active: activeTab === 'referrer' },
     ];
@@ -355,18 +449,207 @@ export default function ProfilePage() {
         switch (activeTab) {
             case 'overview':
                 return (
-                    <div className="space-y-4">
-                        <h2 className="text-xl font-bold text-gray-800">Account Overview</h2>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
-                                <div className="text-sm opacity-90">Agent Code</div>
-                                <div className="text-3xl font-bold mt-2">{user?.agent_code || 'N/A'}</div>
-                            </div>
-                            <div className="bg-gray-50 rounded-xl p-6 border border-gray-200">
-                                <div className="text-sm text-gray-600">Network Level</div>
-                                <div className="text-3xl font-bold text-gray-800 mt-2">{user?.mlm_level || 0}</div>
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h2 className="text-2xl font-bold text-gray-800">Account Overview</h2>
+                            <div className="flex items-center gap-2 text-sm text-gray-500">
+                                <Clock className="w-4 h-4" />
+                                <span>Last updated: {new Date().toLocaleTimeString()}</span>
                             </div>
                         </div>
+
+                        {isOverviewLoading ? (
+                            <div className="flex items-center justify-center py-12">
+                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                <span className="ml-2 text-gray-600">Loading overview data...</span>
+                            </div>
+                        ) : (
+                            <>
+                                {/* Key Metrics Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="text-sm opacity-90">Agent Code</div>
+                                                <div className="text-2xl font-bold mt-1">{user?.agent_code || 'N/A'}</div>
+                                            </div>
+                                            <UserIcon className="w-8 h-8 opacity-80" />
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="text-sm opacity-90">Total Commission</div>
+                                                <div className="text-2xl font-bold mt-1">
+                                                    RM {dashboardStats?.total_commission_earned ? parseFloat(dashboardStats.total_commission_earned).toLocaleString() : '0.00'}
+                                                </div>
+                                            </div>
+                                            <DollarSign className="w-8 h-8 opacity-80" />
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="text-sm opacity-90">Network Level</div>
+                                                <div className="text-2xl font-bold mt-1">{user?.mlm_level || 0}</div>
+                                            </div>
+                                            <Crown className="w-8 h-8 opacity-80" />
+                                        </div>
+                                    </div>
+                                    
+                                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
+                                        <div className="flex items-center justify-between">
+                                            <div>
+                                                <div className="text-sm opacity-90">Total Members</div>
+                                                <div className="text-2xl font-bold mt-1">{dashboardStats?.total_members || 0}</div>
+                                            </div>
+                                            <Users className="w-8 h-8 opacity-80" />
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Performance Metrics */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Commission Trend Chart */}
+                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-semibold text-gray-800">Commission Trend</h3>
+                                            <BarChart3 className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="h-64">
+                                            {commissionHistory.length > 0 ? (
+                                                <Line
+                                                    data={{
+                                                        labels: commissionHistory.slice(0, 6).map((item: any) => 
+                                                            new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                        ),
+                                                        datasets: [{
+                                                            label: 'Commission (RM)',
+                                                            data: commissionHistory.slice(0, 6).map((item: any) => parseFloat(item.amount || 0)),
+                                                            borderColor: 'rgb(59, 130, 246)',
+                                                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                                            tension: 0.4,
+                                                            fill: true
+                                                        }]
+                                                    }}
+                                                    options={{
+                                                        responsive: true,
+                                                        maintainAspectRatio: false,
+                                                        plugins: {
+                                                            legend: {
+                                                                display: false
+                                                            }
+                                                        },
+                                                        scales: {
+                                                            y: {
+                                                                beginAtZero: true,
+                                                                grid: {
+                                                                    color: 'rgba(0, 0, 0, 0.05)'
+                                                                }
+                                                            },
+                                                            x: {
+                                                                grid: {
+                                                                    display: false
+                                                                }
+                                                            }
+                                                        }
+                                                    }}
+                                                />
+                                            ) : (
+                                                <div className="flex items-center justify-center h-full text-gray-500">
+                                                    No commission data available
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Target Achievement */}
+                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-semibold text-gray-800">Target Achievement</h3>
+                                            <Target className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="space-y-4">
+                                            <div className="text-center">
+                                                <div className="text-3xl font-bold text-gray-800 mb-2">
+                                                    {dashboardStats?.target_achievement || 0}%
+                                                </div>
+                                                <div className="text-sm text-gray-600">
+                                                    of monthly target achieved
+                                                </div>
+                                            </div>
+                                            <div className="w-full bg-gray-200 rounded-full h-3">
+                                                <div 
+                                                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500"
+                                                    style={{ width: `${Math.min(dashboardStats?.target_achievement || 0, 100)}%` }}
+                                                ></div>
+                                            </div>
+                                            <div className="flex justify-between text-sm text-gray-600">
+                                                <span>Target: RM {dashboardStats?.commission_target || '0.00'}</span>
+                                                <span>Achieved: RM {dashboardStats?.monthly_commission || '0.00'}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Wallet Balance and Recent Activities */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                                    {/* Wallet Balance */}
+                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-semibold text-gray-800">Wallet Balance</h3>
+                                            <Wallet className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="text-center">
+                                            <div className="text-3xl font-bold text-gray-800 mb-2">
+                                                RM {walletData?.balance ? parseFloat(walletData.balance).toLocaleString() : '0.00'}
+                                            </div>
+                                            <div className="text-sm text-gray-600 mb-4">Available Balance</div>
+                                            <div className="flex gap-2">
+                                                <button className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+                                                    Withdraw
+                                                </button>
+                                                <button className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
+                                                    View History
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Recent Activities */}
+                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                        <div className="flex items-center justify-between mb-4">
+                                            <h3 className="text-lg font-semibold text-gray-800">Recent Activities</h3>
+                                            <Activity className="w-5 h-5 text-gray-500" />
+                                        </div>
+                                        <div className="space-y-3">
+                                            {recentActivities.slice(0, 4).map((activity, index) => (
+                                                <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                                                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
+                                                        <Activity className="w-4 h-4 text-blue-600" />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0">
+                                                        <div className="text-sm font-medium text-gray-800 truncate">
+                                                            {activity.description}
+                                                        </div>
+                                                        <div className="text-xs text-gray-500">
+                                                            {new Date(activity.created_at).toLocaleDateString()}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                            {recentActivities.length === 0 && (
+                                                <div className="text-center text-gray-500 py-4">
+                                                    No recent activities
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </>
+                        )}
                     </div>
                 );
 
@@ -439,158 +722,445 @@ export default function ProfilePage() {
                     </div>
                 );
 
-            case 'payment-settings':
+            case 'policy-view':
                 return (
                     <div className="space-y-4">
                         <div className="flex items-center gap-2">
-                            <h2 className="text-xl font-bold text-gray-800">Payment Settings</h2>
+                            <h2 className="text-xl font-bold text-gray-800">Insurance Plans</h2>
                             <div className="h-0.5 w-8 bg-emerald-500 rounded-full"></div>
                         </div>
                         
-                        <div className="bg-purple-50 border border-purple-200 rounded-lg p-4">
-                            <div className="text-sm text-purple-800">
+                        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                            <div className="text-sm text-blue-800">
                                 <p className="mb-3">
-                                    Setting up e-mandate allows us to streamline the payment collection process and enhance your overall experience by automating payment collection.
+                                    View detailed policy information for our comprehensive insurance plans. 
+                                    Click on any plan to access the full policy document with terms, conditions, and coverage details.
                                 </p>
-                                <ul className="list-disc pl-5 space-y-1">
-                                    <li>Payment statements will show &quot;CURLEC MY-ECOM&quot; or &quot;CURLEC MY-RECURRING&quot;</li>
-                                    <li>Additional RM1 bank handling processing fee for each &quot;Sharing Account top up&quot;</li>
-                                </ul>
                             </div>
                         </div>
                         
-                        <div className="space-y-4">
-                            <div className="border border-gray-200 rounded-lg p-4">
-                                <div className="flex items-start gap-4">
-                                    <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {/* MediPlan Coop */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-gradient-to-r from-blue-500 to-cyan-500 rounded-lg flex items-center justify-center">
+                                        <Shield className="w-6 h-6 text-white" />
                                     </div>
-                                    <div className="flex-1">
-                                        <h3 className="font-semibold text-gray-800 mb-2">Membership Fee Emandate</h3>
-                                        <p className="text-gray-600 text-sm mb-3">
-                                            This streamlines the collection of your membership fee.
-                                        </p>
-                                        <div className="flex gap-3">
-                                            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors">
-                                                View Payment Details
-                                            </button>
-                                            <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-                                                Update Payment Method
-                                            </button>
-                                        </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-800">MediPlan Coop</h3>
+                                        <p className="text-sm text-gray-600">Medical Cooperative Plan</p>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div className="border border-gray-200 rounded-lg p-4">
-                                <div className="flex items-start gap-4">
-                                    <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center flex-shrink-0">
-                                        <CheckCircle className="w-5 h-5 text-emerald-600" />
+                                <div className="space-y-2 mb-4">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Annual Limit</span>
+                                        <span className="font-medium">RM 1,000,000</span>
                                     </div>
-                                    <div className="flex-1">
-                                        <h3 className="font-semibold text-gray-800 mb-2">Sharing Account Emandate</h3>
-                                        <p className="text-gray-600 text-sm mb-3">
-                                            This serves the purpose of collecting your sharing account payment.
-                                        </p>
-                                        <div className="flex gap-3">
-                                            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors">
-                                                View Payment Details
-                                            </button>
-                                            <button className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg text-sm hover:bg-gray-50 transition-colors">
-                                                Update Payment Method
-                                            </button>
-                                        </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Room & Board</span>
+                                        <span className="font-medium">RM 250/day</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Panel Hospitals</span>
+                                        <span className="font-medium">250</span>
                                     </div>
                                 </div>
+                                <button
+                                    onClick={() => handleViewPolicy({
+                                        name: 'MediPlan Coop',
+                                        type: 'Medical Cooperative Plan',
+                                        color: 'from-blue-600 to-cyan-600',
+                                        details: {
+                                            annualLimit: 'RM 1,000,000',
+                                            roomBoard: 'RM 250/day',
+                                            panelHospitals: '250',
+                                            panelClinics: '4,000',
+                                            tpa: 'eMAS (Eximius Medical Administration Solutions)',
+                                            ageEligibility: '30 days to 45 years (renewal up to 100)',
+                                            waitingPeriod: '90 days general, 180 days specific',
+                                            benefits: [
+                                                'Room & Board: RM250 per day',
+                                                'Ambulance Fees: Included',
+                                                'Intensive Care Unit: Included',
+                                                'Hospital Supplies & Services: Included',
+                                                'Surgical Fees: Included',
+                                                'Operating Theater Fees: Included',
+                                                'Anesthetist Fees: Included',
+                                                'In-hospital Doctor Visit: Included',
+                                                'Day Care & Day Surgery: Included',
+                                                'Second Surgical Opinion: Included',
+                                                'Emergency Accidental Dental: Included',
+                                                'Covid Test for Admission: Included',
+                                                'Government Hospital Allowance: RM100/day',
+                                                'Pre-Hospital Diagnostic: RM5,000',
+                                                'Accidental Injury Surgery: RM10,000',
+                                                'Bereavement: RM10,000',
+                                                'Outpatient Cancer Treatment: RM100,000',
+                                                'Conditional Outpatient Benefits: As Charged'
+                                            ]
+                                        }
+                                    })}
+                                    className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-cyan-700 transition-all duration-300 flex items-center justify-center group"
+                                >
+                                    <FileText className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                                    View Policy
+                                            </button>
                             </div>
-                            {mandates.length > 0 && (
-                                <div className="text-xs text-gray-500 px-1">Active mandates: {mandates.length}</div>
-                            )}
+
+                            {/* Senior Care Plan Gold 270 */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-gradient-to-r from-yellow-500 to-orange-500 rounded-lg flex items-center justify-center">
+                                        <Shield className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-800">Senior Care Gold 270</h3>
+                                        <p className="text-sm text-gray-600">Senior Care Plan</p>
+                                    </div>
+                                </div>
+                                <div className="space-y-2 mb-4">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Annual Limit</span>
+                                        <span className="font-medium">RM 75,000</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Room & Board</span>
+                                        <span className="font-medium">RM 270/day</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Panel Hospitals</span>
+                                        <span className="font-medium">148</span>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => handleViewPolicy({
+                                        name: 'Senior Care Plan Gold 270',
+                                        type: 'Senior Care Plan',
+                                        color: 'from-yellow-600 to-orange-600',
+                                        details: {
+                                            annualLimit: 'RM 75,000',
+                                            roomBoard: 'RM 270/day',
+                                            panelHospitals: '148',
+                                            tpa: 'MiCare',
+                                            ageEligibility: '46-65 years (renewal up to 70)',
+                                            pricing: {
+                                                monthly: 'RM 150 + RM 150 Commitment',
+                                                quarterly: 'RM 450',
+                                                semiAnnually: 'RM 900',
+                                                annually: 'RM 1,800'
+                                            },
+                                            benefits: [
+                                                'Hospital Room & Board: RM270/day (max 180 days)',
+                                                'Intensive Care Unit: Full Reimbursement',
+                                                'Hospital Supplies and Services: Included',
+                                                'Surgeon Fee: Included',
+                                                'Anaesthetist Fee: Included',
+                                                'Operating Theatre Charges: Included',
+                                                'Daily Physician Visit: Included',
+                                                'Pre-Hospital Diagnostic Tests: Included',
+                                                'Pre-Hospitalization Consultation: Included',
+                                                'Second Surgical Opinion: Included',
+                                                'Post-Hospitalization Treatment: Included',
+                                                'Emergency Accidental Outpatient: Included',
+                                                'Outpatient Cancer Treatment: Included',
+                                                'Outpatient Kidney Dialysis: Included',
+                                                'Daycare Procedure: Included',
+                                                'Ambulance Charges: Included',
+                                                'Government Hospital Allowance: RM100/day',
+                                                'Medical Report Fee: RM80',
+                                                'Funeral Expenses: RM10,000'
+                                            ]
+                                        }
+                                    })}
+                                    className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 text-white py-2 px-4 rounded-lg font-medium hover:from-yellow-700 hover:to-orange-700 transition-all duration-300 flex items-center justify-center group"
+                                >
+                                    <FileText className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                                    View Policy
+                                            </button>
+                                        </div>
+
+                            {/* Senior Care Plan Diamond 370 */}
+                            <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow">
+                                <div className="flex items-center gap-3 mb-4">
+                                    <div className="w-10 h-10 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg flex items-center justify-center">
+                                        <Shield className="w-6 h-6 text-white" />
+                                    </div>
+                                    <div>
+                                        <h3 className="font-semibold text-gray-800">Senior Care Diamond 370</h3>
+                                        <p className="text-sm text-gray-600">Premium Senior Care</p>
+                                </div>
+                            </div>
+                                <div className="space-y-2 mb-4">
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Annual Limit</span>
+                                        <span className="font-medium">RM 100,000</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Room & Board</span>
+                                        <span className="font-medium">RM 370/day</span>
+                                    </div>
+                                    <div className="flex justify-between text-sm">
+                                        <span className="text-gray-600">Panel Hospitals</span>
+                                        <span className="font-medium">148</span>
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => handleViewPolicy({
+                                        name: 'Senior Care Plan Diamond 370',
+                                        type: 'Premium Senior Care',
+                                        color: 'from-purple-600 to-pink-600',
+                                        details: {
+                                            annualLimit: 'RM 100,000',
+                                            roomBoard: 'RM 370/day',
+                                            panelHospitals: '148',
+                                            tpa: 'MiCare',
+                                            ageEligibility: '46-65 years (renewal up to 70)',
+                                            pricing: {
+                                                monthly: 'RM 210 + RM 210 Commitment',
+                                                quarterly: 'RM 630',
+                                                semiAnnually: 'RM 1,260',
+                                                annually: 'RM 2,520'
+                                            },
+                                            benefits: [
+                                                'Hospital Room & Board: RM370/day (max 180 days)',
+                                                'Intensive Care Unit: Full Reimbursement',
+                                                'Hospital Supplies and Services: Included',
+                                                'Surgeon Fee: Included',
+                                                'Anaesthetist Fee: Included',
+                                                'Operating Theatre Charges: Included',
+                                                'Daily Physician Visit: Included',
+                                                'Pre-Hospital Diagnostic Tests: Included',
+                                                'Pre-Hospitalization Consultation: Included',
+                                                'Second Surgical Opinion: Included',
+                                                'Post-Hospitalization Treatment: Included',
+                                                'Emergency Accidental Outpatient: Included',
+                                                'Outpatient Cancer Treatment: Included',
+                                                'Outpatient Kidney Dialysis: Included',
+                                                'Daycare Procedure: Included',
+                                                'Ambulance Charges: Included',
+                                                'Government Hospital Allowance: RM200/day',
+                                                'Medical Report Fee: RM80',
+                                                'Funeral Expenses: RM10,000'
+                                            ]
+                                        }
+                                    })}
+                                    className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-2 px-4 rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all duration-300 flex items-center justify-center group"
+                                >
+                                    <FileText className="w-4 h-4 mr-2 group-hover:translate-x-1 transition-transform" />
+                                    View Policy
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );
 
             case 'medical-insurance':
                 return (
-                    <div className="space-y-4">
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <h2 className="text-xl font-bold text-gray-800">Medical Insurance Clients</h2>
-                                <div className="h-0.5 w-8 bg-emerald-500 rounded-full"></div>
+                        <div className="space-y-4">
+                        {/* Compact Header */}
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center">
+                                    <Shield className="w-4 h-4 text-white" />
+                                    </div>
+                                <div>
+                                    <h2 className="text-lg font-bold text-gray-800">Medical Insurance Clients</h2>
+                                    <p className="text-xs text-gray-500">{clients.length} total clients</p>
+                                </div>
                             </div>
                             <button
                                 onClick={handleMedicalInsuranceRegistration}
-                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
+                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm font-medium flex items-center gap-2"
                             >
-                                Register New Client
+                                <Plus className="w-4 h-4" />
+                                Add Client
                             </button>
                         </div>
-                        {isLoading && <div className="text-sm text-gray-500 px-1">Loading...</div>}
-                        {error && <div className="text-sm text-red-600 px-1">{error}</div>}
-                        <div className="space-y-4">
-                            {clients.length === 0 ? (
-                                <div className="bg-white border border-gray-200 rounded-lg p-6 text-center">
-                                    <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">No Clients Yet</h3>
-                                    <p className="text-gray-600 mb-4">Register a medical insurance for your client to get started.</p>
-                                    <button
-                                        onClick={handleMedicalInsuranceRegistration}
-                                        className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                                    >
-                                        Register for Medical Insurance
-                                    </button>
+
+                        {/* Compact Search and Stats */}
+                        <div className="bg-white rounded-lg border border-gray-200 p-4">
+                            <div className="flex flex-col sm:flex-row gap-3">
+                                    <div className="flex-1">
+                                    <div className="relative">
+                                        <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                                        <input
+                                            type="text"
+                                            placeholder="Search clients..."
+                                            value={searchQuery}
+                                            onChange={handleSearchChange}
+                                            className="w-full pl-9 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500"
+                                        />
+                                    </div>
                                 </div>
-                            ) : (
-                                clients.map((client, index) => (
-                                    <div key={index} className="bg-white border border-gray-200 rounded-lg p-6">
-                                        <div className="flex items-start justify-between mb-4">
-                                            <div>
-                                                <h3 className="text-lg font-semibold text-gray-800">{client.full_name}</h3>
-                                                <p className="text-sm text-gray-600">{client.nric}</p>
-                                            </div>
-                                            <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-                                                client.status === 'active' 
-                                                    ? 'bg-green-100 text-green-800' 
-                                                    : 'bg-gray-100 text-gray-800'
-                                            }`}>
-                                                {client.status}
-                                            </span>
-                                        </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                                            <div>
-                                                <div className="text-sm text-gray-500 mb-1">Plan</div>
-                                                <div className="font-medium text-gray-800">{client.plan_name}</div>
-                                                <div className="text-sm text-gray-600 capitalize">{client.payment_mode}</div>
-                                            </div>
-                                            <div>
-                                                <div className="text-sm text-gray-500 mb-1">Contact</div>
-                                                <div className="font-medium text-gray-800">{client.phone_number}</div>
-                                                <div className="text-sm text-gray-600">{client.email || '-'}</div>
-                                            </div>
-                                            <div>
-                                                <div className="text-sm text-gray-500 mb-1">Gateway Payments</div>
-                                                <div className="text-sm text-gray-700">
-                                                    {gatewayPayments.find((p: any) => p.client_id === client.id) ? 'Recorded' : 'No records yet'}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center justify-between pt-4 border-t border-gray-200">
-                                            <div className="text-sm text-gray-600">
-                                                Medical Card: {client.medical_card_type}
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleViewClientDetails(client)} className="px-3 py-1.5 bg-emerald-100 text-emerald-700 rounded-lg text-sm hover:bg-emerald-200 transition-colors">
-                                                    View Details
-                                                </button>
-                                                <button onClick={() => handleDownloadClientCard(client)} className="px-3 py-1.5 bg-gray-100 text-gray-700 rounded-lg text-sm hover:bg-gray-200 transition-colors">
-                                                    Download Card
-                                                </button>
-                                            </div>
+                                <div className="flex gap-2 text-xs">
+                                    <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">
+                                        {clients.length} Total
+                                    </span>
+                                    <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
+                                        {filteredClients.length} Found
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Loading and Error States */}
+                        {isLoading && (
+                            <div className="flex items-center justify-center py-8">
+                                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-emerald-600"></div>
+                                <span className="ml-2 text-sm text-gray-600">Loading...</span>
+                            </div>
+                        )}
+                        
+                        {error && (
+                            <div className="bg-red-50 border border-red-200 rounded-lg p-3">
+                                <div className="flex items-center text-sm">
+                                    <XCircle className="w-4 h-4 text-red-600 mr-2" />
+                                    <span className="text-red-800">{error}</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Compact Clients List */}
+                        {!isLoading && !error && (
+                            <div className="space-y-3">
+                                {paginatedClients.length === 0 ? (
+                                    <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
+                                        <Shield className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                                        <h3 className="text-lg font-semibold text-gray-800 mb-2">
+                                            {searchQuery ? 'No matching clients' : 'No clients yet'}
+                                        </h3>
+                                        <p className="text-sm text-gray-600 mb-4">
+                                            {searchQuery ? 'Try different search terms' : 'Register your first client to get started.'}
+                                        </p>
+                                        {!searchQuery && (
+                                            <button
+                                                onClick={handleMedicalInsuranceRegistration}
+                                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors text-sm"
+                                            >
+                                                Register Client
+                                            </button>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Compact Client Cards */}
+                                        <div className="space-y-3">
+                                            {paginatedClients.map((client, index) => (
+                                                <div key={client.id || index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 hover:border-emerald-200">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        {/* Client Avatar and Basic Info */}
+                                                        <div className="flex items-start gap-3 flex-1">
+                                                            <div className="w-10 h-10 bg-gradient-to-r from-emerald-500 to-emerald-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                                                                {client.full_name?.charAt(0) || 'C'}
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <h3 className="text-base font-semibold text-gray-800 truncate">{client.full_name}</h3>
+                                                                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                                        client.status === 'active' 
+                                                                            ? 'bg-green-100 text-green-800' 
+                                                                            : 'bg-gray-100 text-gray-800'
+                                                                    }`}>
+                                                                        {client.status}
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-gray-600 mb-2">NRIC: {client.nric}</p>
+                                                                
+                                                                {/* Compact Info Grid */}
+                                                                <div className="grid grid-cols-2 gap-3 text-xs">
+                                                                    <div>
+                                                                        <span className="text-gray-500">Plan:</span>
+                                                                        <div className="font-medium text-gray-800 truncate">{client.plan_name}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Phone:</span>
+                                                                        <div className="font-medium text-gray-800">{client.phone_number}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Card:</span>
+                                                                        <div className="font-medium text-gray-800">{client.medical_card_type}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Payment:</span>
+                                                                        <div className="font-medium text-gray-800">
+                                                                            {gatewayPayments.find((p: any) => p.client_id === client.id) ? '✓ Recorded' : 'Pending'}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Compact Action Buttons */}
+                                                        <div className="flex gap-1">
+                                                            <button 
+                                                                onClick={() => handleViewClientDetails(client)} 
+                                                                className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
+                                                                title="View Details"
+                                                            >
+                                                                <Eye className="w-4 h-4" />
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleDownloadClientCard(client)} 
+                                                                className="p-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                                                                title="Download Card"
+                                                            >
+                                                                <Download className="w-4 h-4" />
+                                            </button>
                                         </div>
                                     </div>
-                                ))
+                                </div>
+                                            ))}
+                            </div>
+                            
+                                        {/* Compact Pagination */}
+                                        {totalPages > 1 && (
+                                            <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
+                                                <div className="text-xs text-gray-600">
+                                                    {startIndex + 1}-{Math.min(endIndex, filteredClients.length)} of {filteredClients.length}
+                                    </div>
+                                                
+                                                <div className="flex items-center gap-1">
+                                                    <button
+                                                        onClick={() => handlePageChange(currentPage - 1)}
+                                                        disabled={currentPage === 1}
+                                                        className="px-2 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        ←
+                                            </button>
+                                                    
+                                                    <div className="flex gap-1">
+                                                        {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                                                            const page = i + 1;
+                                                            return (
+                                                                <button
+                                                                    key={page}
+                                                                    onClick={() => handlePageChange(page)}
+                                                                    className={`px-2 py-1 text-xs font-medium rounded ${
+                                                                        page === currentPage
+                                                                            ? 'bg-emerald-600 text-white'
+                                                                            : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-50'
+                                                                    }`}
+                                                                >
+                                                                    {page}
+                                            </button>
+                                                            );
+                                                        })}
+                                        </div>
+                                                    
+                                                    <button
+                                                        onClick={() => handlePageChange(currentPage + 1)}
+                                                        disabled={currentPage === totalPages}
+                                                        className="px-2 py-1 text-xs font-medium text-gray-500 bg-white border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    >
+                                                        →
+                                                    </button>
+                                    </div>
+                                </div>
+                                        )}
+                                    </>
+                                )}
+                            </div>
                             )}
-                        </div>
                     </div>
                 );
 
@@ -778,6 +1348,70 @@ export default function ProfilePage() {
                                             </button>
                                             <button className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
                                                 <Share2 className="w-4 h-4 text-gray-600" />
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* External Medical Insurance Registration Link */}
+                                <div className="bg-white border border-gray-200 rounded-lg p-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="font-semibold text-gray-800">Medical Insurance Registration Link</h3>
+                                        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                            External Registration
+                                        </div>
+                                    </div>
+                                    <div className="space-y-3">
+                                        <p className="text-sm text-gray-600">
+                                            Share this link to allow clients to register for medical insurance directly under your agent code.
+                                        </p>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="text"
+                                                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/register-external?agent_code=${user?.agent_code || ''}`}
+                                                readOnly
+                                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                                            />
+                                            <button 
+                                                onClick={() => {
+                                                    if (typeof window !== 'undefined') {
+                                                        navigator.clipboard.writeText(`${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`);
+                                                        // You could add a toast notification here
+                                                    }
+                                                }}
+                                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
+                                            >
+                                                Copy Link
+                                            </button>
+                                        </div>
+                                        <div className="flex gap-2">
+                                            <button 
+                                                onClick={() => {
+                                                    if (typeof window !== 'undefined') {
+                                                        const url = `${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`;
+                                                        window.open(`https://wa.me/?text=${encodeURIComponent(`Register for Medical Insurance: ${url}`)}`, '_blank');
+                                                    }
+                                                }}
+                                                className="p-2 border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
+                                                title="Share via WhatsApp"
+                                            >
+                                                <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
+                                                </svg>
+                                            </button>
+                                            <button 
+                                                onClick={() => {
+                                                    if (typeof window !== 'undefined') {
+                                                        const url = `${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`;
+                                                        window.open(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent('Register for Medical Insurance')}`, '_blank');
+                                                    }
+                                                }}
+                                                className="p-2 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
+                                                title="Share via Telegram"
+                                            >
+                                                <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
+                                                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
+                                                </svg>
                                             </button>
                                         </div>
                                     </div>
@@ -1033,7 +1667,7 @@ export default function ProfilePage() {
         } catch (e) {
             alert('Failed to download card');
         }
-    };
+	};
 
 	return (
         <>
@@ -1615,6 +2249,134 @@ export default function ProfilePage() {
                 onSuccess={handleMedicalInsuranceSuccess}
             />
 
+            {/* Policy Details Modal */}
+            <AnimatePresence>
+                {showPolicyModal && selectedPolicy && (
+                    <motion.div
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                    >
+                        <motion.div
+                            initial={{ scale: 0.9, opacity: 0 }}
+                            animate={{ scale: 1, opacity: 1 }}
+                            exit={{ scale: 0.9, opacity: 0 }}
+                            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
+                        >
+                            {/* Modal Header */}
+                            <div className={`bg-gradient-to-r ${selectedPolicy.color} p-6 text-white`}>
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <Shield className="w-8 h-8" />
+                                        <div>
+                                            <h2 className="text-2xl font-bold">{selectedPolicy.name}</h2>
+                                            <p className="text-white/90">{selectedPolicy.type}</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setShowPolicyModal(false)}
+                                        className="text-white/80 hover:text-white transition-colors"
+                                    >
+                                        <X className="w-6 h-6" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Modal Content */}
+                            <div className="p-6 max-h-[70vh] overflow-y-auto">
+                                {/* Key Details */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                                    <div className="space-y-4">
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <h3 className="font-semibold text-gray-800 mb-3">Coverage Details</h3>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Annual Limit</span>
+                                                    <span className="font-medium">{selectedPolicy.details.annualLimit}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Room & Board</span>
+                                                    <span className="font-medium">{selectedPolicy.details.roomBoard}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Panel Hospitals</span>
+                                                    <span className="font-medium">{selectedPolicy.details.panelHospitals}</span>
+                                                </div>
+                                                {selectedPolicy.details.panelClinics && (
+                                                    <div className="flex justify-between">
+                                                        <span className="text-gray-600">Panel Clinics</span>
+                                                        <span className="font-medium">{selectedPolicy.details.panelClinics}</span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-4">
+                                        <div className="bg-gray-50 rounded-lg p-4">
+                                            <h3 className="font-semibold text-gray-800 mb-3">Plan Information</h3>
+                                            <div className="space-y-2">
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">TPA</span>
+                                                    <span className="font-medium text-sm">{selectedPolicy.details.tpa}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Age Eligibility</span>
+                                                    <span className="font-medium text-sm">{selectedPolicy.details.ageEligibility}</span>
+                                                </div>
+                                                <div className="flex justify-between">
+                                                    <span className="text-gray-600">Waiting Period</span>
+                                                    <span className="font-medium text-sm">{selectedPolicy.details.waitingPeriod}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Pricing (if available) */}
+                                {selectedPolicy.details.pricing && (
+                                    <div className="mb-8">
+                                        <h3 className="font-semibold text-gray-800 mb-4">Pricing Options</h3>
+                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                            {Object.entries(selectedPolicy.details.pricing).map(([frequency, price]) => (
+                                                <div key={frequency} className="bg-gray-50 rounded-lg p-4 text-center">
+                                                    <div className="text-sm text-gray-600 capitalize mb-1">{frequency}</div>
+                                                    <div className="font-semibold text-gray-800">{String(price)}</div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Benefits */}
+                                <div className="mb-8">
+                                    <h3 className="font-semibold text-gray-800 mb-4">Benefits & Coverage</h3>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                        {selectedPolicy.details.benefits.map((benefit: string, index: number) => (
+                                            <div key={index} className="flex items-start gap-2">
+                                                <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
+                                                <span className="text-sm text-gray-700">{benefit}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Modal Footer */}
+                            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                                <button
+                                    onClick={() => setShowPolicyModal(false)}
+                                    className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                                >
+                                    Close
+                                </button>
+                            </div>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
             <PageTransition>
                 <div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
                     <div className="w-full max-w-6xl xl:max-w-7xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
@@ -1690,63 +2452,196 @@ export default function ProfilePage() {
 			</div>
             </PageTransition>
 
-            {/* Client Details Modal */}
+            {/* Enhanced Client Details Modal */}
             <AnimatePresence>
                 {showClientModal && selectedClient && (
                     <motion.div
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4"
+                        onClick={() => setShowClientModal(false)}
                     >
                         <motion.div
                             initial={{ scale: 0.9, opacity: 0, y: 20 }}
                             animate={{ scale: 1, opacity: 1, y: 0 }}
                             exit={{ scale: 0.9, opacity: 0, y: 20 }}
                             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                            className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] overflow-hidden"
+                            onClick={(e) => e.stopPropagation()}
                         >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <h2 className="text-xl font-bold text-gray-800">Client Details</h2>
-                                <button onClick={() => setShowClientModal(false)} className="p-2 hover:bg-gray-100 rounded-lg transition-colors">
-                                    <X className="w-5 h-5 text-gray-600" />
-                                </button>
+                            {/* Enhanced Header */}
+                            <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white p-6">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-4">
+                                        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-bold text-2xl">
+                                            {selectedClient.full_name?.charAt(0) || 'C'}
+                                        </div>
+                                        <div>
+                                            <h2 className="text-2xl font-bold">{selectedClient.full_name}</h2>
+                                            <p className="text-emerald-100 text-sm">Client ID: {selectedClient.id}</p>
+                                        </div>
+                                    </div>
+                                    <button 
+                                        onClick={() => setShowClientModal(false)} 
+                                        className="p-3 hover:bg-white/20 rounded-xl transition-colors"
+                                    >
+                                        <X className="w-6 h-6" />
+                                    </button>
+                                </div>
+                                
+                                {/* Status Badge */}
+                                <div className="mt-4">
+                                    <span className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
+                                        selectedClient.status === 'active' 
+                                            ? 'bg-green-500 text-white' 
+                                            : 'bg-gray-500 text-white'
+                                    }`}>
+                                        <div className={`w-2 h-2 rounded-full mr-2 ${
+                                            selectedClient.status === 'active' ? 'bg-white' : 'bg-gray-300'
+                                        }`}></div>
+                                        {selectedClient.status?.toUpperCase()}
+                                    </span>
+                                </div>
                             </div>
-                            <div className="p-6 space-y-4">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">Name</div>
-                                        <div className="font-medium text-gray-800">{selectedClient.full_name}</div>
+
+                            {/* Enhanced Content */}
+                            <div className="p-6 overflow-y-auto max-h-[calc(95vh-200px)]">
+                                {/* Personal Information Section */}
+                                <div className="mb-8">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
+                                            <UserIcon className="w-4 h-4 text-blue-600" />
+                                        </div>
+                                        <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
                                     </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">NRIC</div>
-                                        <div className="font-medium text-gray-800">{selectedClient.nric}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">Plan</div>
-                                        <div className="font-medium text-gray-800">{selectedClient.plan_name}</div>
-                                    </div>
-                                    <div>
-                                        <div className="text-sm text-gray-500 mb-1">Payment Mode</div>
-                                        <div className="font-medium text-gray-800 capitalize">{selectedClient.payment_mode}</div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">Full Name</div>
+                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.full_name}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">NRIC Number</div>
+                                            <div className="font-semibold text-gray-800 text-sm font-mono">{selectedClient.nric}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">Phone Number</div>
+                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.phone_number}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">Email Address</div>
+                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.email || 'Not provided'}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">Date of Birth</div>
+                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.date_of_birth || 'Not provided'}</div>
+                                        </div>
+                                        <div className="bg-gray-50 rounded-xl p-4">
+                                            <div className="text-xs text-gray-500 mb-1">Gender</div>
+                                            <div className="font-semibold text-gray-800 text-sm capitalize">{selectedClient.gender || 'Not specified'}</div>
+                                        </div>
                                     </div>
                                 </div>
-                                <div className="pt-4 border-t border-gray-200">
-                                    <h3 className="text-lg font-semibold text-gray-800 mb-2">Payments</h3>
+
+                                {/* Insurance Information Section */}
+                                <div className="mb-8">
+                                    <div className="flex items-center gap-2 mb-4">
+                                        <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
+                                            <Shield className="w-4 h-4 text-emerald-600" />
+                                        </div>
+                                        <h3 className="text-lg font-semibold text-gray-800">Insurance Information</h3>
+                                    </div>
+                                    
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                        <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
+                                            <div className="text-xs text-emerald-600 mb-1">Insurance Plan</div>
+                                            <div className="font-bold text-emerald-800 text-lg">{selectedClient.plan_name}</div>
+                                            <div className="text-sm text-emerald-700 mt-1">Payment Mode: {selectedClient.payment_mode}</div>
+                                        </div>
+                                        <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
+                                            <div className="text-xs text-blue-600 mb-1">Medical Card Type</div>
+                                            <div className="font-bold text-blue-800 text-lg">{selectedClient.medical_card_type}</div>
+                                            <div className="text-sm text-blue-700 mt-1">Card Status: Active</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Payment History Section */}
+                                <div className="mb-6">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
+                                                <DollarSign className="w-4 h-4 text-green-600" />
+                                            </div>
+                                            <h3 className="text-lg font-semibold text-gray-800">Payment History</h3>
+                                        </div>
+                                        <div className="text-sm text-gray-500">
+                                            {clientPayments.length} payment{clientPayments.length !== 1 ? 's' : ''}
+                                        </div>
+                                    </div>
+                                    
                                     {clientPayments.length === 0 ? (
-                                        <div className="text-sm text-gray-500">No payments found.</div>
+                                        <div className="bg-gray-50 rounded-xl p-8 text-center">
+                                            <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+                                            <h4 className="text-lg font-semibold text-gray-600 mb-2">No Payments Found</h4>
+                                            <p className="text-sm text-gray-500">This client hasn't made any payments yet.</p>
+                                        </div>
                                     ) : (
-                                        <div className="space-y-2">
-                                            {clientPayments.map((p, i) => (
-                                                <div key={i} className="flex items-center justify-between text-sm bg-gray-50 rounded-lg p-3">
-                                                    <div className="text-gray-700">{p.description || 'Payment'}</div>
-                                                    <div className="text-gray-900 font-medium">RM {Number(p.amount).toFixed(2)}</div>
-                                                    <div className="text-gray-600">{new Date(p.completed_at || p.created_at).toLocaleString()}</div>
-                                                    <div className="text-gray-600">{p.status}</div>
+                                        <div className="space-y-3">
+                                            {clientPayments.map((payment, index) => (
+                                                <div key={index} className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all duration-200">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center gap-3 mb-2">
+                                                                <div className={`w-3 h-3 rounded-full ${
+                                                                    payment.status === 'completed' ? 'bg-green-500' : 
+                                                                    payment.status === 'pending' ? 'bg-yellow-500' : 'bg-red-500'
+                                                                }`}></div>
+                                                                <h4 className="font-semibold text-gray-800">{payment.description || 'Payment'}</h4>
+                                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                                                    payment.status === 'completed' ? 'bg-green-100 text-green-800' :
+                                                                    payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                                                                }`}>
+                                                                    {payment.status?.toUpperCase()}
+                                                                </span>
+                                                            </div>
+                                                            <div className="text-sm text-gray-600">
+                                                                {new Date(payment.completed_at || payment.created_at).toLocaleDateString('en-MY', {
+                                                                    year: 'numeric',
+                                                                    month: 'long',
+                                                                    day: 'numeric',
+                                                                    hour: '2-digit',
+                                                                    minute: '2-digit'
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <div className="text-xl font-bold text-gray-800">RM {Number(payment.amount).toFixed(2)}</div>
+                                                            <div className="text-xs text-gray-500">Amount</div>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
+                                </div>
+
+                                {/* Action Buttons */}
+                                <div className="flex gap-3 pt-4 border-t border-gray-200">
+                                    <button 
+                                        onClick={() => handleDownloadClientCard(selectedClient)}
+                                        className="flex-1 bg-emerald-600 text-white py-3 px-4 rounded-xl hover:bg-emerald-700 transition-colors font-medium flex items-center justify-center gap-2"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        Download Client Card
+                                    </button>
+                                    <button 
+                                        onClick={() => setShowClientModal(false)}
+                                        className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium"
+                                    >
+                                        Close
+                                    </button>
                                 </div>
                             </div>
                         </motion.div>

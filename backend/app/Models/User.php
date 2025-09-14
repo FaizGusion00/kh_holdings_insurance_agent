@@ -117,6 +117,22 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the agent's wallet.
+     */
+    public function wallet()
+    {
+        return $this->hasOne(AgentWallet::class);
+    }
+
+    /**
+     * Get all wallet transactions.
+     */
+    public function walletTransactions()
+    {
+        return $this->hasMany(WalletTransaction::class);
+    }
+
+    /**
      * Generate a unique agent code.
      */
     public static function generateAgentCode(): string

@@ -83,6 +83,7 @@ class MedicalInsuranceController extends Controller
                 'emergency_contact_relationship' => 'required|string|max:255',
                 'payment_mode' => 'required|string|in:monthly,quarterly,half_yearly,yearly',
                 'medical_card_type' => 'required|string|in:e-Medical Card,e-Medical Card & Fizikal Medical Card dengan fungsi NFC Touch n Go (RRP RM34.90)',
+                'agent_code' => 'nullable|string|exists:users,agent_code',
                 'add_second_customer' => 'boolean',
                 'add_third_customer' => 'boolean',
                 'add_fourth_customer' => 'boolean',
@@ -117,11 +118,28 @@ class MedicalInsuranceController extends Controller
             DB::beginTransaction();
 
             try {
+                // Handle external registration with agent_code
+                $agentId = null;
+                $agentCode = null;
+                
+                if ($request->has('agent_code') && $request->agent_code) {
+                    // External registration - find agent by agent_code
+                    $agent = \App\Models\User::where('agent_code', $request->agent_code)->first();
+                    if ($agent) {
+                        $agentId = $agent->id;
+                        $agentCode = $request->agent_code;
+                    }
+                } else {
+                    // Internal registration - use authenticated user
+                    $agentId = auth()->id();
+                    $agentCode = auth()->user()->agent_code;
+                }
+
                 // Create registration
                 $registration = new MedicalInsuranceRegistration();
-                $registration->agent_id = auth()->id();
+                $registration->agent_id = $agentId;
                 $registration->registration_number = $registration->generateRegistrationNumber();
-                $registration->agent_code = auth()->user()->agent_code;
+                $registration->agent_code = $agentCode;
                 $registration->plan_type = $request->plan_type;
                 $registration->full_name = $request->full_name;
                 $registration->nric = $request->nric;
@@ -337,6 +355,149 @@ class MedicalInsuranceController extends Controller
                     'contact_relationship' => $request->$emergencyRelationshipField,
                 ]);
             }
+        }
+    }
+
+    /**
+     * Register for medical insurance (external/public)
+     */
+    public function registerExternal(Request $request)
+    {
+        try {
+            $validator = Validator::make($request->all(), [
+                'plan_type' => 'required|string|in:MediPlan Coop,Senior Care Plan Gold 270,Senior Care Plan Diamond 370',
+                'full_name' => 'required|string|max:255',
+                'nric' => 'required|string|size:14|regex:/^\d{6}-\d{2}-\d{4}$/',
+                'race' => 'required|string|in:Malay,Chinese,Indian,Others',
+                'height_cm' => 'required|integer|min:100|max:250',
+                'weight_kg' => 'required|integer|min:30|max:300',
+                'phone_number' => 'required|string|regex:/^\+?6?0?1[0-9]{8,9}$/',
+                'email' => 'required|email|max:255',
+                'password' => 'required|string|min:6',
+                'medical_consultation_2_years' => 'required|boolean',
+                'serious_illness_history' => 'required|boolean',
+                'insurance_rejection_history' => 'required|boolean',
+                'serious_injury_history' => 'required|boolean',
+                'emergency_contact_name' => 'required|string|max:255',
+                'emergency_contact_phone' => 'required|string|regex:/^\+?6?0?1[0-9]{8,9}$/',
+                'emergency_contact_relationship' => 'required|string|max:255',
+                'payment_mode' => 'required|string|in:monthly,quarterly,half_yearly,yearly',
+                'medical_card_type' => 'required|string|in:e-Medical Card,e-Medical Card & Fizikal Medical Card dengan fungsi NFC Touch n Go (RRP RM34.90)',
+                'agent_code' => 'required|string|exists:users,agent_code',
+                'add_second_customer' => 'boolean',
+                'add_third_customer' => 'boolean',
+                'add_fourth_customer' => 'boolean',
+                'add_fifth_customer' => 'boolean',
+                'add_sixth_customer' => 'boolean',
+                'add_seventh_customer' => 'boolean',
+                'add_eighth_customer' => 'boolean',
+                'add_ninth_customer' => 'boolean',
+                'add_tenth_customer' => 'boolean',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Validation failed',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
+            // Get the plan details
+            $plan = MedicalInsurancePlan::where('name', $request->plan_type)->first();
+            if (!$plan) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Selected plan not found'
+                ], 404);
+            }
+
+            // Find agent by agent_code
+            $agent = \App\Models\User::where('agent_code', $request->agent_code)->first();
+            if (!$agent) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Invalid agent code'
+                ], 404);
+            }
+
+            // Calculate contribution amount
+            $contributionAmount = $this->calculateContributionAmount($plan, $request->payment_mode);
+
+            DB::beginTransaction();
+
+            try {
+                // Create registration
+                $registration = new MedicalInsuranceRegistration();
+                $registration->agent_id = $agent->id;
+                $registration->registration_number = $registration->generateRegistrationNumber();
+                $registration->agent_code = $request->agent_code;
+                $registration->plan_type = $request->plan_type;
+                $registration->full_name = $request->full_name;
+                $registration->nric = $request->nric;
+                $registration->race = $request->race;
+                $registration->height_cm = $request->height_cm;
+                $registration->weight_kg = $request->weight_kg;
+                $registration->phone_number = $request->phone_number;
+                $registration->email = $request->email;
+                $registration->password = Hash::make($request->password);
+                $registration->medical_consultation_2_years = $request->medical_consultation_2_years;
+                $registration->serious_illness_history = $request->serious_illness_history;
+                $registration->insurance_rejection_history = $request->insurance_rejection_history;
+                $registration->serious_injury_history = $request->serious_injury_history;
+                $registration->emergency_contact_name = $request->emergency_contact_name;
+                $registration->emergency_contact_phone = $request->emergency_contact_phone;
+                $registration->emergency_contact_relationship = $request->emergency_contact_relationship;
+                $registration->payment_mode = $request->payment_mode;
+                $registration->medical_card_type = $request->medical_card_type;
+                $registration->contribution_amount = $contributionAmount;
+                $registration->status = 'pending_payment';
+                $registration->save();
+
+                // Create emergency contact for primary customer
+                EmergencyContact::create([
+                    'registration_id' => $registration->id,
+                    'customer_type' => 'primary',
+                    'contact_name' => $request->emergency_contact_name,
+                    'contact_phone' => $request->emergency_contact_phone,
+                    'contact_relationship' => $request->emergency_contact_relationship,
+                ]);
+
+                // Handle additional customers
+                $this->handleAdditionalCustomers($request, $registration);
+
+                DB::commit();
+
+                return response()->json([
+                    'success' => true,
+                    'message' => 'Registration created successfully',
+                    'data' => [
+                        'id' => $registration->id,
+                        'registration_number' => $registration->registration_number,
+                        'agent_code' => $registration->agent_code,
+                        'plan_type' => $registration->plan_type,
+                        'full_name' => $registration->full_name,
+                        'email' => $registration->email,
+                        'contribution_amount' => $registration->contribution_amount,
+                        'status' => $registration->status
+                    ]
+                ]);
+
+            } catch (\Exception $e) {
+                DB::rollBack();
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Failed to create registration',
+                    'error' => $e->getMessage()
+                ], 500);
+            }
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Registration failed',
+                'error' => $e->getMessage()
+            ], 500);
         }
     }
 }

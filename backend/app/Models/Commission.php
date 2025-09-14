@@ -29,6 +29,11 @@ class Commission extends Model
         'year',
         'status',
         'payment_date',
+        'admin_notes',
+        'payment_proof',
+        'payment_method',
+        'payment_reference',
+        'paid_by_admin_id',
     ];
 
     /**
@@ -76,6 +81,22 @@ class Commission extends Model
     public function policy()
     {
         return $this->belongsTo(MemberPolicy::class, 'policy_id');
+    }
+
+    /**
+     * Get the wallet transaction for this commission.
+     */
+    public function walletTransaction()
+    {
+        return $this->belongsTo(WalletTransaction::class);
+    }
+
+    /**
+     * Get the admin who processed the payment.
+     */
+    public function paidByAdmin()
+    {
+        return $this->belongsTo(Admin::class, 'paid_by_admin_id');
     }
 
     /**

@@ -35,6 +35,12 @@ class Member extends Model
         'balance',
         'referrer_code',
         'referrer_id',
+        'agent_code',
+        'mlm_level',
+        'referrer_agent_id',
+        'referrer_agent_code',
+        'is_agent',
+        'wallet_balance',
     ];
 
     /**
@@ -46,6 +52,9 @@ class Member extends Model
     {
         return [
             'registration_date' => 'date',
+            'date_of_birth' => 'date',
+            'is_agent' => 'boolean',
+            'wallet_balance' => 'decimal:2',
         ];
     }
 
@@ -55,6 +64,14 @@ class Member extends Model
     public function agent()
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    /**
+     * Get the referrer agent (for network hierarchy).
+     */
+    public function referrerAgent()
+    {
+        return $this->belongsTo(User::class, 'referrer_agent_id');
     }
 
     /**

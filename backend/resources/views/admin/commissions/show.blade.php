@@ -66,10 +66,31 @@
                                 <dt class="text-sm font-medium text-gray-500">Created Date</dt>
                                 <dd class="text-sm text-gray-900">{{ $commission->created_at->format('M j, Y g:i A') }}</dd>
                             </div>
-                            @if($commission->status === 'paid' && $commission->paid_at)
+                            @if($commission->status === 'paid' && $commission->payment_date)
                             <div>
                                 <dt class="text-sm font-medium text-gray-500">Paid Date</dt>
-                                <dd class="text-sm text-gray-900">{{ $commission->paid_at->format('M j, Y g:i A') }}</dd>
+                                <dd class="text-sm text-gray-900">{{ $commission->payment_date->format('M j, Y g:i A') }}</dd>
+                            </div>
+                            @endif
+                            
+                            @if($commission->status === 'paid' && $commission->payment_method)
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Payment Method</dt>
+                                <dd class="text-sm text-gray-900">{{ ucfirst(str_replace('_', ' ', $commission->payment_method)) }}</dd>
+                            </div>
+                            @endif
+                            
+                            @if($commission->status === 'paid' && $commission->payment_reference)
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Payment Reference</dt>
+                                <dd class="text-sm text-gray-900">{{ $commission->payment_reference }}</dd>
+                            </div>
+                            @endif
+                            
+                            @if($commission->status === 'paid' && $commission->paidByAdmin)
+                            <div>
+                                <dt class="text-sm font-medium text-gray-500">Processed By</dt>
+                                <dd class="text-sm text-gray-900">{{ $commission->paidByAdmin->name }}</dd>
                             </div>
                             @endif
                         </dl>
@@ -129,34 +150,37 @@
             </div>
 
             <!-- Policy Information -->
-            @if($commission->policy)
+
+            <!-- Payment Information -->
+            @if($commission->status === 'paid')
             <div class="bg-white shadow sm:rounded-lg">
                 <div class="px-4 py-5 sm:p-6">
-                    <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Policy Information</h3>
-                    <dl class="grid grid-cols-1 gap-x-4 gap-y-6 sm:grid-cols-2">
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Policy Number</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $commission->policy->policy_number }}</dd>
+                    <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Payment Information</h3>
+                    
+                    @if($commission->payment_proof)
+                    <div class="mb-4">
+                        <dt class="text-sm font-medium text-gray-500 mb-2">Payment Proof</dt>
+                        <div class="flex items-center space-x-3">
+                            <a href="{{ asset('storage/' . $commission->payment_proof) }}" target="_blank" 
+                               class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+                                <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                                </svg>
+                                View Proof
+                            </a>
                         </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Policy Holder</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $commission->policy->member->name }}</dd>
+                    </div>
+                    @endif
+                    
+                    @if($commission->admin_notes)
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500 mb-2">Admin Notes</dt>
+                        <div class="text-sm text-gray-900 bg-gray-50 p-4 rounded-lg">
+                            {{ $commission->admin_notes }}
                         </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Policy Status</dt>
-                            <dd class="mt-1 text-sm text-gray-900">
-                                <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
-                                    {{ $commission->policy->status === 'active' ? 'bg-green-100 text-green-800' : 
-                                       ($commission->policy->status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800') }}">
-                                    {{ ucfirst($commission->policy->status) }}
-                                </span>
-                            </dd>
-                        </div>
-                        <div>
-                            <dt class="text-sm font-medium text-gray-500">Start Date</dt>
-                            <dd class="mt-1 text-sm text-gray-900">{{ $commission->policy->start_date ? $commission->policy->start_date->format('M j, Y') : 'N/A' }}</dd>
-                        </div>
-                    </dl>
+                    </div>
+                    @endif
                 </div>
             </div>
             @endif

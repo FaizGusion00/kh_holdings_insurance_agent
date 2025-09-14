@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Services\CurlecPaymentService;
+use App\Services\CommissionAutomationService;
 use App\Models\MedicalInsuranceRegistration;
 use App\Models\MedicalInsurancePlan;
 use App\Models\MedicalInsurancePolicy;
@@ -18,10 +19,12 @@ use Illuminate\Support\Facades\DB;
 class MedicalInsurancePaymentController extends Controller
 {
     protected $curlecService;
+    protected $commissionAutomationService;
 
-    public function __construct(CurlecPaymentService $curlecService)
+    public function __construct(CurlecPaymentService $curlecService, CommissionAutomationService $commissionAutomationService)
     {
         $this->curlecService = $curlecService;
+        $this->commissionAutomationService = $commissionAutomationService;
     }
 
     /**
@@ -178,6 +181,9 @@ class MedicalInsurancePaymentController extends Controller
                     $this->recordGatewayPayment($registration, $payment, $clients);
                     $registration->status = 'active';
                     $registration->save();
+
+                    // Process commission automation
+                    $this->processCommissionAutomation($registration);
                 }
 
                 DB::commit();
@@ -665,6 +671,27 @@ class MedicalInsurancePaymentController extends Controller
                 return now()->addYear()->toDateString();
             default:
                 return now()->addMonth()->toDateString();
+        }
+    }
+
+    /**
+     * Process commission automation for successful payment
+     */
+    private function processCommissionAutomation($registration)
+    {
+        try {
+            Log::info("Starting commission automation for registration {$registration->id}");
+            
+            $result = $this->commissionAutomationService->processMedicalInsuranceCommission($registration->id);
+            
+            if ($result['success']) {
+                Log::info("Commission automation completed successfully for registration {$registration->id}. Processed: {$result['processed_count']}, Total: RM " . number_format($result['total_amount'], 2));
+            } else {
+                Log::error("Commission automation failed for registration {$registration->id}: " . $result['error']);
+            }
+            
+        } catch (\Exception $e) {
+            Log::error("Exception in commission automation for registration {$registration->id}: " . $e->getMessage());
         }
     }
 }

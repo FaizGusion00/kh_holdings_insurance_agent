@@ -187,16 +187,117 @@ class UserController extends Controller
      */
     public function destroy(User $user)
     {
-        // Check if user has members or commissions
-        if ($user->members()->count() > 0 || $user->commissions()->count() > 0) {
+        try {
+            // Check if this user has a corresponding member record
+            $member = Member::where('user_id', $user->id)->first();
+            
+            if ($member) {
+                // If it's an agent in members table, use the cascading delete
+                if ($member->is_agent) {
+                    return $this->deleteAgentWithCascade($member);
+                } else {
+                    // If it's a customer, delete normally
+                    $member->policies()->delete();
+                    $member->paymentTransactions()->delete();
+                    $member->delete();
+                }
+            }
+
+            // Delete user's commissions
+            $user->commissions()->delete();
+            
+            // Delete user's wallet and transactions
+            if ($user->agentWallet) {
+                $user->agentWallet->transactions()->delete();
+                $user->agentWallet->delete();
+            }
+
+            // Delete user's withdrawal requests
+            $user->withdrawalRequests()->delete();
+
+            // Delete the user
+            $user->delete();
+
+            return redirect()->route('admin.users.index')
+                ->with('success', 'Agent and all related records deleted successfully!');
+                
+        } catch (\Exception $e) {
             return redirect()->back()
-                ->with('error', 'Cannot delete agent with existing members or commissions.');
+                ->with('error', 'Error deleting agent: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Delete agent with cascading deletes for their network
+     */
+    private function deleteAgentWithCascade(Member $agent)
+    {
+        // Get all agents under this agent (their downline)
+        $downlineAgents = Member::where('referrer_agent_id', $agent->user_id)
+            ->where('is_agent', true)
+            ->get();
+
+        // Get all customers under this agent
+        $customers = Member::where('user_id', $agent->user_id)
+            ->where('is_agent', false)
+            ->get();
+
+        // Check if any downline agents have customers or policies
+        $hasActiveDownline = false;
+        foreach ($downlineAgents as $downlineAgent) {
+            if ($downlineAgent->policies()->count() > 0 || 
+                $downlineAgent->paymentTransactions()->count() > 0 ||
+                Member::where('user_id', $downlineAgent->user_id)->where('is_agent', false)->count() > 0) {
+                $hasActiveDownline = true;
+                break;
+            }
         }
 
-        $user->delete();
+        if ($hasActiveDownline) {
+            return redirect()->back()
+                ->with('error', 'Cannot delete agent with active downline agents who have customers or policies.');
+        }
+
+        // Delete all customers under this agent
+        foreach ($customers as $customer) {
+            // Delete customer's policies and transactions
+            $customer->policies()->delete();
+            $customer->paymentTransactions()->delete();
+            $customer->delete();
+        }
+
+        // Delete all downline agents (recursively)
+        foreach ($downlineAgents as $downlineAgent) {
+            $this->deleteAgentWithCascade($downlineAgent);
+        }
+
+        // Delete the agent's own policies and transactions
+        $agent->policies()->delete();
+        $agent->paymentTransactions()->delete();
+
+        // Delete agent's wallet and transactions
+        $user = User::find($agent->user_id);
+        if ($user && $user->agentWallet) {
+            $user->agentWallet->transactions()->delete();
+            $user->agentWallet->delete();
+        }
+
+        // Delete agent's withdrawal requests
+        if ($user) {
+            $user->withdrawalRequests()->delete();
+        }
+
+        // Delete the agent from members table
+        $agent->delete();
+
+        // Also delete from users table if it exists
+        if ($user) {
+            $user->commissions()->delete();
+            $user->delete();
+        }
 
         return redirect()->route('admin.users.index')
-            ->with('success', 'Agent deleted successfully!');
+            ->with('success', 'Agent and all related records deleted successfully!');
     }
 
     /**

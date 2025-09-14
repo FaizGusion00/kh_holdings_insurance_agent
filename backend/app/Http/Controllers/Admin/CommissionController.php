@@ -91,9 +91,8 @@ class CommissionController extends Controller
     {
         $agents = User::where('status', 'active')->get();
         $products = InsuranceProduct::where('is_active', true)->get();
-        $policies = MemberPolicy::where('status', 'active')->get();
         
-        return view('admin.commissions.create', compact('agents', 'products', 'policies'));
+        return view('admin.commissions.create', compact('agents', 'products'));
     }
 
     /**
@@ -104,7 +103,6 @@ class CommissionController extends Controller
         $request->validate([
             'user_id' => 'required|exists:users,id',
             'product_id' => 'required|exists:insurance_products,id',
-            'policy_id' => 'required|exists:member_policies,id',
             'tier_level' => 'required|integer|min:1|max:5',
             'commission_type' => 'required|in:direct,referral,override',
             'base_amount' => 'required|numeric|min:0',
@@ -118,7 +116,6 @@ class CommissionController extends Controller
         $commission = Commission::create([
             'user_id' => $request->user_id,
             'product_id' => $request->product_id,
-            'policy_id' => $request->policy_id,
             'tier_level' => $request->tier_level,
             'commission_type' => $request->commission_type,
             'base_amount' => $request->base_amount,
@@ -139,7 +136,7 @@ class CommissionController extends Controller
      */
     public function show(Commission $commission)
     {
-        $commission->load(['agent', 'product', 'policy.member', 'referrer']);
+        $commission->load(['agent', 'product', 'referrer']);
         
         return view('admin.commissions.show', compact('commission'));
     }
@@ -151,9 +148,8 @@ class CommissionController extends Controller
     {
         $agents = User::where('status', 'active')->get();
         $products = InsuranceProduct::where('is_active', true)->get();
-        $policies = MemberPolicy::where('status', 'active')->get();
         
-        return view('admin.commissions.edit', compact('commission', 'agents', 'products', 'policies'));
+        return view('admin.commissions.edit', compact('commission', 'agents', 'products'));
     }
 
     /**
@@ -164,7 +160,6 @@ class CommissionController extends Controller
         $request->validate([
             'user_id' => 'required|exists:users,id',
             'product_id' => 'required|exists:insurance_products,id',
-            'policy_id' => 'required|exists:member_policies,id',
             'tier_level' => 'required|integer|min:1|max:5',
             'commission_type' => 'required|in:direct,referral,override',
             'base_amount' => 'required|numeric|min:0',
@@ -178,7 +173,6 @@ class CommissionController extends Controller
         $commission->update([
             'user_id' => $request->user_id,
             'product_id' => $request->product_id,
-            'policy_id' => $request->policy_id,
             'tier_level' => $request->tier_level,
             'commission_type' => $request->commission_type,
             'base_amount' => $request->base_amount,
@@ -329,5 +323,56 @@ class CommissionController extends Controller
 
         return redirect()->route('admin.commissions.index')
             ->with('success', "Successfully paid {$paidCount} commissions totaling RM " . number_format($totalPaid, 2));
+    }
+
+    /**
+     * Mark a single commission as paid with proof and notes.
+     */
+    public function markPaid(Request $request, Commission $commission)
+    {
+        $request->validate([
+            'payment_method' => 'required|string|max:255',
+            'payment_reference' => 'nullable|string|max:255',
+            'payment_proof' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:10240', // 10MB max
+            'admin_notes' => 'nullable|string|max:1000',
+        ]);
+
+        if ($commission->status === 'paid') {
+            return redirect()->back()
+                ->with('error', 'Commission is already marked as paid.');
+        }
+
+        try {
+            $paymentProofPath = null;
+            
+            // Handle file upload
+            if ($request->hasFile('payment_proof')) {
+                $file = $request->file('payment_proof');
+                $fileName = 'payment_proof_' . $commission->id . '_' . time() . '.' . $file->getClientOriginalExtension();
+                $paymentProofPath = $file->storeAs('payment_proofs', $fileName, 'public');
+            }
+
+            // Update commission
+            $commission->update([
+                'status' => 'paid',
+                'payment_date' => now(),
+                'payment_method' => $request->payment_method,
+                'payment_reference' => $request->payment_reference,
+                'payment_proof' => $paymentProofPath,
+                'admin_notes' => $request->admin_notes,
+                'paid_by_admin_id' => auth()->guard('admin')->id(),
+            ]);
+
+            // Process payment to wallet
+            $walletService = app(\App\Services\WalletService::class);
+            $walletService->processCommissionPayment($commission->id, auth()->guard('admin')->id());
+
+            return redirect()->route('admin.commissions.index')
+                ->with('success', 'Commission marked as paid successfully!');
+
+        } catch (\Exception $e) {
+            return redirect()->back()
+                ->with('error', 'Error processing payment: ' . $e->getMessage());
+        }
     }
 }

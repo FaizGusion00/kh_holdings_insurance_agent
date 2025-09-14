@@ -19,6 +19,8 @@ class DatabaseSeeder extends Seeder
             MedicalCaseSeeder::class,
             HospitalSeeder::class,
             ClinicSeeder::class,
+            WalletSeeder::class,
+            CommissionRuleSeeder::class, // Added commission rules
         ]);
     }
 }

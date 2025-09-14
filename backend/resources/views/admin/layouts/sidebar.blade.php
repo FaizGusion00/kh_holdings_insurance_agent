@@ -64,6 +64,39 @@
                         </a>
                     </li>
 
+                    <!-- Commission Rules Management -->
+                    <li>
+                        <a href="{{ route('admin.commission-rules.index') }}" 
+                           class="{{ request()->routeIs('admin.commission-rules.*') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-600 hover:bg-blue-50' }} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-200">
+                            <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            Commission Rules
+                        </a>
+                    </li>
+
+                    <!-- Wallets Management -->
+                    <li>
+                        <a href="{{ route('admin.wallets.index') }}" 
+                           class="{{ request()->routeIs('admin.wallets.*') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-600 hover:bg-blue-50' }} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-200">
+                            <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a2.25 2.25 0 00-2.25-2.25H15a3 3 0 11-6 0H5.25A2.25 2.25 0 003 12m18 0v6a2.25 2.25 0 01-2.25 2.25H5.25A2.25 2.25 0 013 18v-6m18 0V9a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 9v3m18 0V6a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 6v3m18 0V3a2.25 2.25 0 00-2.25-2.25H5.25A2.25 2.25 0 003 3v3" />
+                            </svg>
+                            Agent Wallets
+                        </a>
+                    </li>
+
+                    <!-- Withdrawal Requests Management -->
+                    <li>
+                        <a href="{{ route('admin.withdrawals.index') }}" 
+                           class="{{ request()->routeIs('admin.withdrawals.*') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-600 hover:bg-blue-50' }} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-200">
+                            <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21L3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+                            </svg>
+                            Withdrawal Requests
+                        </a>
+                    </li>
+
                     <!-- Products Management -->
                     <li>
                         <a href="{{ route('admin.products.index') }}" 

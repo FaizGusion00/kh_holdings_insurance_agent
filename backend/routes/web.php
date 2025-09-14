@@ -6,11 +6,14 @@ use App\Http\Controllers\Admin\DashboardController;
 use App\Http\Controllers\Admin\UserController;
 use App\Http\Controllers\Admin\MemberController;
 use App\Http\Controllers\Admin\CommissionController;
+use App\Http\Controllers\Admin\CommissionRuleController;
+use App\Http\Controllers\Admin\WithdrawalController;
 use App\Http\Controllers\Admin\InsuranceProductController;
 use App\Http\Controllers\Admin\HospitalController;
 use App\Http\Controllers\Admin\ClinicController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ReportController;
+use App\Http\Controllers\Admin\WalletController;
 
 // Admin Authentication Routes
 Route::get('/admin/login', [App\Http\Controllers\Admin\AuthController::class, 'showLoginForm'])->name('admin.login');
@@ -37,6 +40,17 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
     Route::get('commissions/calculate', [CommissionController::class, 'showCalculateForm'])->name('commissions.calculate');
     Route::post('commissions/calculate', [CommissionController::class, 'calculateCommissions'])->name('commissions.calculate.post');
     Route::post('commissions/bulk-pay', [CommissionController::class, 'bulkPay'])->name('commissions.bulk-pay');
+    Route::post('commissions/{commission}/mark-paid', [CommissionController::class, 'markPaid'])->name('commissions.mark-paid');
+    
+    // Commission Rules Management
+    Route::resource('commission-rules', CommissionRuleController::class);
+    Route::patch('commission-rules/{commissionRule}/toggle', [CommissionRuleController::class, 'toggle'])->name('commission-rules.toggle');
+    
+    // Withdrawal Management
+    Route::resource('withdrawals', WithdrawalController::class)->only(['index', 'show']);
+    Route::post('withdrawals/{withdrawal}/approve', [WithdrawalController::class, 'approve'])->name('withdrawals.approve');
+    Route::post('withdrawals/{withdrawal}/reject', [WithdrawalController::class, 'reject'])->name('withdrawals.reject');
+    Route::post('withdrawals/{withdrawal}/complete', [WithdrawalController::class, 'complete'])->name('withdrawals.complete');
     
     // Test route for calculate commissions
     Route::get('test-calculate', function() {
@@ -58,6 +72,14 @@ Route::middleware(['admin'])->prefix('admin')->name('admin.')->group(function ()
     Route::post('payments/bulk-approve', [PaymentController::class, 'bulkApprove'])->name('payments.bulk-approve');
     Route::post('payments/{payment}/approve', [PaymentController::class, 'approve'])->name('payments.approve');
     Route::resource('payments', PaymentController::class);
+    
+    // Wallets Management
+    Route::get('wallets/sync-pending', [WalletController::class, 'syncPendingCommissions'])->name('wallets.sync');
+    Route::post('wallets/sync-pending', [WalletController::class, 'syncPendingCommissions'])->name('wallets.sync.post');
+    Route::post('wallets/process-commissions', [WalletController::class, 'processCommissions'])->name('wallets.process-commissions');
+    Route::resource('wallets', WalletController::class);
+    Route::post('wallets/{wallet}/update-status', [WalletController::class, 'updateStatus'])->name('wallets.update-status');
+    Route::get('wallets/{wallet}/transactions', [WalletController::class, 'transactions'])->name('wallets.transactions');
     
     // Reports
     Route::get('reports/sales', [ReportController::class, 'sales'])->name('reports.sales');

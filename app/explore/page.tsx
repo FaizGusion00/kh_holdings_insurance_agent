@@ -136,14 +136,7 @@ export default function ExplorePage() {
 										<BookOpen size={16} className="sm:w-[18px] sm:h-[18px]" />
 										Read Program Guideline
 									</motion.button>
-									<motion.button 
-										className="h-9 sm:h-10 md:h-12 px-3 sm:px-4 md:px-6 rounded-lg bg-gradient-to-r from-blue-100 to-blue-200 text-blue-800 font-medium hover:from-blue-200 hover:to-blue-300 transition-all duration-300 transform hover:-translate-y-0.5 shadow-md hover:shadow-lg flex items-center justify-center gap-2"
-										whileHover={{ scale: 1.02 }}
-										whileTap={{ scale: 0.98 }}
-									>
-										<LogsIcon size={16} className="sm:w-[18px] sm:h-[18px]" />
-										Logs
-									</motion.button>
+								
 								</div>
 							</StaggeredItem>
 						</StaggeredContainer>

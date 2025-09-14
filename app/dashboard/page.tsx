@@ -2,22 +2,27 @@
 
 import {
 	CircleHelp,
-	Plus,
+	// Plus, // Commented out for future use
 	TrendingUp,
 	Users,
 	Hospital,
 	Activity,
 	ArrowUpRight,
 	Calendar,
-	CreditCard
+	CreditCard,
+	Clock,
+	DollarSign,
+	UserPlus,
+	FileText
 } from "lucide-react";
 import { PageTransition, StaggeredContainer, StaggeredItem, FadeIn } from "../(ui)/components/PageTransition";
 import { Modal } from "../(ui)/components/Modal";
-import { AddMemberForm } from "../(ui)/components/AddMemberForm";
+import { LoadingSpinner } from "../(ui)/components/LoadingSpinner";
+// import { AddMemberForm } from "../(ui)/components/AddMemberForm"; // Commented out for future use
 import { MemberDetails, MemberProfile } from "../(ui)/components/MemberDetails";
 import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { apiService, Member, DashboardStats } from "../services/api";
+import { apiService, Member, DashboardStats, RecentActivity, PerformanceData } from "../services/api";
 
 // Family Icon using the PNG image
 function FamilyIcon({ className }: { className?: string }) {
@@ -32,13 +37,13 @@ function FamilyIcon({ className }: { className?: string }) {
 
 type MemberDisplay = { name: string; nric: string; balance: number; status: string; initial: string; color: string };
 
-function StatCard({ title, value, highlight, icon: Icon, trend, onAddMember }: { 
+function StatCard({ title, value, highlight, icon: Icon, trend }: { 
 	title: string; 
 	value: string; 
 	highlight?: boolean; 
 	icon?: React.ComponentType<{ className?: string }>;
 	trend?: { value: string; isPositive: boolean };
-	onAddMember?: () => void;
+	// onAddMember?: () => void; // Commented out for future use
 }) {
 	return (
 		<div className={`rounded-lg sm:rounded-xl md:rounded-2xl p-2.5 sm:p-3 md:p-4 lg:p-5 transition-all duration-300 hover:shadow-lg ${
@@ -65,8 +70,8 @@ function StatCard({ title, value, highlight, icon: Icon, trend, onAddMember }: {
 							</span>
 						</div>
 					)}
-					{/* Add Member Button */}
-					{title === "Total Member" && onAddMember && (
+					{/* Add Member Button - Commented out for future use */}
+					{/* {title === "Total Member" && onAddMember && (
 						<button
 							onClick={onAddMember}
 							className="mt-2 sm:mt-3 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-all duration-300 hover:shadow-md transform hover:-translate-y-0.5 flex items-center gap-2"
@@ -74,7 +79,7 @@ function StatCard({ title, value, highlight, icon: Icon, trend, onAddMember }: {
 							<Plus className="w-3 h-3 sm:w-4 sm:h-4" />
 							Add Member
 						</button>
-					)}
+					)} */}
 				</div>
 				{title === "Total Member" && (
 					<div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden">
@@ -116,7 +121,7 @@ function MemberCard({ m }: { m: Member }) {
 						</div>
 						<div>
 							<div className="text-gray-500">Balance</div>
-							<div className="font-semibold text-emerald-600">RM {m.balance.toFixed(2)}</div>
+							<div className="font-semibold text-emerald-600">RM {Number(m.balance || 0).toFixed(2)}</div>
 						</div>
 					</div>
 				</div>
@@ -137,34 +142,110 @@ function MemberCard({ m }: { m: Member }) {
 	);
 }
 
+function RecentActivityCard({ activity }: { activity: RecentActivity }) {
+	const getIcon = (type: string) => {
+		switch (type) {
+			case 'member_registration':
+				return UserPlus;
+			case 'commission_earned':
+				return DollarSign;
+			case 'payment_received':
+				return CreditCard;
+			default:
+				return Clock;
+		}
+	};
+
+	const getColorClasses = (type: string) => {
+		switch (type) {
+			case 'member_registration':
+				return 'bg-green-100 text-green-700 border-green-200';
+			case 'commission_earned':
+				return 'bg-blue-100 text-blue-700 border-blue-200';
+			case 'payment_received':
+				return 'bg-emerald-100 text-emerald-700 border-emerald-200';
+			default:
+				return 'bg-gray-100 text-gray-700 border-gray-200';
+		}
+	};
+
+	const getTitle = (type: string) => {
+		switch (type) {
+			case 'member_registration':
+				return 'New Member Registered';
+			case 'commission_earned':
+				return 'Commission Earned';
+			case 'payment_received':
+				return 'Payment Received';
+			default:
+				return 'Activity';
+		}
+	};
+
+	const Icon = getIcon(activity.type);
+	const colorClasses = getColorClasses(activity.type);
+	const title = getTitle(activity.type);
+
+	return (
+		<div className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-white hover:shadow-md transition-all duration-300">
+			<div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${colorClasses}`}>
+				<Icon className="w-4 h-4" />
+			</div>
+			<div className="flex-1 min-w-0">
+				<div className="text-sm font-semibold text-gray-800 mb-1">{title}</div>
+				<div className="text-xs text-gray-600 mb-2">{activity.description}</div>
+				<div className="text-xs text-gray-500">
+					{new Date(activity.created_at).toLocaleDateString('en-US', {
+						month: 'short',
+						day: 'numeric',
+						hour: '2-digit',
+						minute: '2-digit'
+					})}
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export default function DashboardPage() {
 	const { user } = useAuth();
-	const [showAdd, setShowAdd] = useState(false);
+	// const [showAdd, setShowAdd] = useState(false); // Commented out for future use
 	const [showDetails, setShowDetails] = useState<null | MemberProfile>(null);
 	const [currentDateTime, setCurrentDateTime] = useState<Date | null>(null);
 	const [isMounted, setIsMounted] = useState(false);
 	const [dashboardData, setDashboardData] = useState<DashboardStats | null>(null);
+	const [recentActivities, setRecentActivities] = useState<RecentActivity[]>([]);
+	const [performanceData, setPerformanceData] = useState<PerformanceData | null>(null);
 	const [members, setMembers] = useState<Member[]>([]);
 	const [isLoading, setIsLoading] = useState(true);
+	const [error, setError] = useState<string | null>(null);
 	
 	// Fetch dashboard data
 	useEffect(() => {
 		const fetchDashboardData = async () => {
 			try {
-				const [statsResponse, membersResponse] = await Promise.all([
+				setError(null);
+				const [dashboardResponse, membersResponse] = await Promise.all([
 					apiService.getDashboardStats(),
 					apiService.getMembers()
 				]);
 				
-				if (statsResponse.success && statsResponse.data) {
-					setDashboardData(statsResponse.data.stats);
+				if (dashboardResponse.success && dashboardResponse.data) {
+					setDashboardData(dashboardResponse.data.stats);
+					setRecentActivities(dashboardResponse.data.recent_activities || []);
+					setPerformanceData(dashboardResponse.data.performance_data || null);
+				} else {
+					setError(dashboardResponse.message || 'Failed to fetch dashboard data');
 				}
 				
 				if (membersResponse.success && membersResponse.data) {
 					setMembers(membersResponse.data.data);
+				} else {
+					setError(membersResponse.message || 'Failed to fetch members data');
 				}
 			} catch (error) {
 				console.error('Failed to fetch dashboard data:', error);
+				setError('Network error. Please check your connection and try again.');
 			} finally {
 				setIsLoading(false);
 			}
@@ -184,10 +265,48 @@ export default function DashboardPage() {
 		return () => clearInterval(timer);
 	}, []);
 	
+	// Show loading state
+	if (isLoading) {
+		return (
+			<PageTransition>
+				<div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+					<div className="w-full max-w-2xl green-gradient-border p-6 text-center">
+						<div className="flex flex-col items-center gap-4">
+							<LoadingSpinner size="lg" />
+							<div className="text-gray-600 text-lg font-medium">Loading Dashboard...</div>
+						</div>
+					</div>
+				</div>
+			</PageTransition>
+		);
+	}
+
+	// Show error state
+	if (error && !isLoading) {
+		return (
+			<PageTransition>
+				<div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+					<div className="w-full max-w-2xl green-gradient-border p-6 text-center">
+						<div className="bg-red-50 border border-red-200 rounded-lg p-6">
+							<div className="text-red-600 text-lg font-semibold mb-2">Error Loading Dashboard</div>
+							<div className="text-red-500 mb-4">{error}</div>
+							<button 
+								onClick={() => window.location.reload()} 
+								className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+							>
+								Retry
+							</button>
+						</div>
+					</div>
+				</div>
+			</PageTransition>
+		);
+	}
+
 	return (
 		<PageTransition>
-					<div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-blue-50/30">
-			<div className="relative w-full max-w-5xl xl:max-w-6xl blue-gradient-border p-1.5 sm:p-2 md:p-3 lg:p-4 xl:p-6">
+			<div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
+				<div className="w-full max-w-5xl xl:max-w-6xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
 					{/* Profile Badge */}
 					<FadeIn delay={0.3}>
 						<div className="absolute right-2 sm:right-3 md:right-6 top-2 sm:top-3 md:top-6">
@@ -246,7 +365,7 @@ export default function DashboardPage() {
 							</div>
 						</FadeIn>
 						
-						<div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] xl:grid-cols-[360px_1fr] gap-2 sm:gap-3 md:gap-4 lg:gap-5">
+						<div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 md:gap-8 lg:gap-10">
 							{/* Left Column - Enhanced Stats */}
 							<StaggeredContainer className="grid grid-cols-1 gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
 								<StaggeredItem>
@@ -256,7 +375,7 @@ export default function DashboardPage() {
 										highlight 
 										icon={Users}
 										trend={{ value: `+${dashboardData?.new_members || 0} this month`, isPositive: true }}
-										onAddMember={() => setShowAdd(true)}
+										// onAddMember={() => setShowAdd(true)} // Commented out for future use
 									/>
 								</StaggeredItem>
 								<StaggeredItem>
@@ -294,17 +413,16 @@ export default function DashboardPage() {
 											</div>
 											<div className="h-0.5 sm:h-1 w-10 sm:w-12 md:w-16 bg-gradient-to-r from-[#264EE4] to-[#264EE4] rounded-full" />
 										</div>
-										<button 
+										{/* Add Member Button - Commented out for future use */}
+										{/* <button 
 											onClick={()=> setShowAdd(true)} 
 											className="w-6 h-6 sm:w-7 sm:h-7 md:w-8 md:h-8 lg:w-9 lg:h-9 rounded-full bg-gradient-to-r from-[#264EE4] to-[#264EE4] text-white grid place-content-center hover:from-[#264EE4]/90 hover:to-[#264EE4]/90 transition-all duration-300 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5"
 										>
 											<Plus size={12} className="sm:w-[14px] sm:h-[14px] md:w-[16px] md:h-[16px]" />
-										</button>
+										</button> */}
 									</div>
 									<StaggeredContainer className="grid gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
-										{isLoading ? (
-											<div className="text-center py-8 text-gray-500">Loading members...</div>
-										) : members.length > 0 ? (
+										{members.length > 0 ? (
 											members.map((m) => (
 												<StaggeredItem key={m.id}>
 													<button 
@@ -334,13 +452,39 @@ export default function DashboardPage() {
 									</StaggeredContainer>
 								</div>
 							</FadeIn>
+							
+							{/* Third Column - Recent Activities */}
+							<FadeIn delay={0.8}>
+								<div className="flex flex-col gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
+									<div className="flex items-center justify-between">
+										<div>
+											<div className="flex items-center gap-2 mb-1 sm:mb-2">
+												<Clock className="w-3 h-3 sm:w-4 sm:h-4 md:w-5 md:h-5 text-[#264EE4]" />
+												<div className="font-bold text-xs sm:text-sm md:text-base text-gray-800">Recent Activities</div>
+											</div>
+											<div className="h-0.5 sm:h-1 w-10 sm:w-12 md:w-16 bg-gradient-to-r from-[#264EE4] to-[#264EE4] rounded-full" />
+										</div>
+									</div>
+									<StaggeredContainer className="grid gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
+										{recentActivities.length > 0 ? (
+											recentActivities.slice(0, 5).map((activity, index) => (
+												<StaggeredItem key={index}>
+													<RecentActivityCard activity={activity} />
+												</StaggeredItem>
+											))
+										) : (
+											<div className="text-center py-8 text-gray-500">No recent activities</div>
+										)}
+									</StaggeredContainer>
+								</div>
+							</FadeIn>
 						</div>
 					</div>
 				</div>
 			</div>
 
-			{/* Add Member Modal */}
-			<Modal open={showAdd} onClose={()=> setShowAdd(false)} title="Add Member" maxWidth="max-w-4xl">
+			{/* Add Member Modal - Commented out for future use */}
+			{/* <Modal open={showAdd} onClose={()=> setShowAdd(false)} title="Add Member" maxWidth="max-w-4xl">
 				<AddMemberForm onSubmit={async (data) => {
 					try {
 						const response = await apiService.createMember({
@@ -374,7 +518,7 @@ export default function DashboardPage() {
 						alert('Failed to create member. Please try again.');
 					}
 				}} />
-			</Modal>
+			</Modal> */}
 
 			{/* Member Details Modal */}
 			<Modal open={!!showDetails} onClose={()=> setShowDetails(null)} maxWidth="max-w-5xl">

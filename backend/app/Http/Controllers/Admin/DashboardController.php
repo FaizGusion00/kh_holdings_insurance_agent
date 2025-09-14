@@ -6,8 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Models\Member;
 use App\Models\Commission;
+use App\Models\CommissionRule;
 use App\Models\InsuranceProduct;
 use App\Models\PaymentTransaction;
+use App\Models\AgentWallet;
+use App\Models\WalletTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -34,6 +37,15 @@ class DashboardController extends Controller
                                               ->where('year', $currentYear)
                                               ->sum('commission_amount'),
             'pending_payments' => PaymentTransaction::where('status', 'pending')->count(),
+            
+            // Commission Automation Metrics
+            'total_commission_rules' => CommissionRule::where('is_active', true)->count(),
+            'auto_processed_commissions' => Commission::where('status', 'paid')
+                                                     ->where('created_at', '>=', now()->subDays(7))
+                                                     ->count(),
+            'pending_commissions' => Commission::where('status', 'pending')->count(),
+            'total_wallet_balance' => AgentWallet::sum('balance'),
+            'recent_wallet_transactions' => WalletTransaction::where('created_at', '>=', now()->subDays(7))->count(),
             'total_revenue' => PaymentTransaction::where('status', 'completed')
                                                ->whereMonth('created_at', $currentMonth)
                                                ->whereYear('created_at', $currentYear)

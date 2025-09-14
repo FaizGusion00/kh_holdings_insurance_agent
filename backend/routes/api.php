@@ -12,7 +12,10 @@ use App\Http\Controllers\Api\PaymentController;
 use App\Http\Controllers\Api\TacController;
 use App\Http\Controllers\Api\MedicalInsuranceController;
 use App\Http\Controllers\Api\MedicalInsurancePaymentController;
+use App\Http\Controllers\Api\CommissionAutomationController;
 use App\Http\Controllers\Api\ClientsController;
+use App\Http\Controllers\Api\AgentWalletController;
+use App\Http\Controllers\Api\PlanController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -118,14 +121,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/uplines', [CommissionController::class, 'getUplines']);
     });
 
-    // Insurance products routes
-    Route::prefix('products')->group(function () {
-        Route::get('/', function () {
-            return \App\Models\InsuranceProduct::where('is_active', true)->get();
-        });
-        Route::get('/{product}', function (\App\Models\InsuranceProduct $product) {
-            return $product->load('commissionRules');
-        });
+    // Insurance plans routes (simplified)
+    Route::prefix('plans')->group(function () {
+        Route::get('/', [PlanController::class, 'index']);
+        Route::get('/{id}', [PlanController::class, 'show']);
+        Route::get('/{id}/pricing', [PlanController::class, 'getPricing']);
     });
 
     // Payment routes
@@ -166,6 +166,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::match(['POST','GET'], '/payment/verify', [MedicalInsurancePaymentController::class, 'verifyPayment']);
         Route::get('/payment/config', [MedicalInsurancePaymentController::class, 'getPaymentConfig']);
         Route::get('/payment/gateway-history', [MedicalInsurancePaymentController::class, 'getGatewayPayments']);
+        
+        // Commission automation routes
+        Route::post('/commission/process-registration', [CommissionAutomationController::class, 'processMedicalInsuranceCommission']);
+        Route::post('/commission/process-policy', [CommissionAutomationController::class, 'processPolicyCommission']);
+        Route::post('/commission/sync-pending', [CommissionAutomationController::class, 'syncPendingCommissions']);
+        Route::get('/commission/summary', [CommissionAutomationController::class, 'getCommissionSummary']);
     });
 
     // Clients (agent's customers) routes
@@ -175,10 +181,19 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/{id}/payments', [ClientsController::class, 'payments']);
         Route::get('/{id}/card', [ClientsController::class, 'downloadCard']);
     });
+
+    // Agent Wallet routes
+    Route::prefix('agent')->group(function () {
+        Route::get('/wallet', [AgentWalletController::class, 'getWallet']);
+        Route::post('/wallet/withdraw', [AgentWalletController::class, 'requestWithdrawal']);
+        Route::get('/wallet/withdrawals', [AgentWalletController::class, 'getWithdrawalHistory']);
+        Route::get('/wallet/transactions', [AgentWalletController::class, 'getWalletTransactions']);
+    });
 });
 
 // Medical Insurance routes (public - outside auth middleware)
 Route::prefix('medical-insurance')->group(function () {
     Route::get('/plans', [MedicalInsuranceController::class, 'getPlans']);
     Route::get('/plans/{id}', [MedicalInsuranceController::class, 'getPlan']);
+    Route::post('/register-external', [MedicalInsuranceController::class, 'registerExternal']);
 });

@@ -153,6 +153,10 @@
                                        class="text-blue-600 hover:text-blue-900">View</a>
                                     <a href="{{ route('admin.commissions.edit', $commission) }}" 
                                        class="text-indigo-600 hover:text-indigo-900">Edit</a>
+                                    @if($commission->status === 'pending')
+                                        <button onclick="openPaymentModal({{ $commission->id }}, '{{ $commission->agent->name }}', {{ $commission->commission_amount }})" 
+                                                class="text-green-600 hover:text-green-900">Pay</button>
+                                    @endif
                                 </div>
                             </td>
                         </tr>
@@ -176,4 +180,95 @@
         </div>
     </div>
 </div>
+
+<!-- Payment Modal -->
+<div id="paymentModal" class="fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full hidden z-50">
+    <div class="relative top-20 mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+        <div class="mt-3">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-lg font-medium text-gray-900">Mark Commission as Paid</h3>
+                <button onclick="closePaymentModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+            
+            <form id="paymentForm" method="POST" enctype="multipart/form-data">
+                @csrf
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Agent</label>
+                        <p id="agentName" class="mt-1 text-sm text-gray-900"></p>
+                    </div>
+                    
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Commission Amount</label>
+                        <p id="commissionAmount" class="mt-1 text-sm text-gray-900 font-semibold"></p>
+                    </div>
+                    
+                    <div>
+                        <label for="payment_method" class="block text-sm font-medium text-gray-700">Payment Method</label>
+                        <select name="payment_method" id="payment_method" required
+                                class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                            <option value="">Select Payment Method</option>
+                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="cash">Cash</option>
+                            <option value="cheque">Cheque</option>
+                            <option value="online_transfer">Online Transfer (FPX/IBG)</option>
+                            <option value="other">Other</option>
+                        </select>
+                    </div>
+                    
+                    <div>
+                        <label for="payment_reference" class="block text-sm font-medium text-gray-700">Payment Reference</label>
+                        <input type="text" name="payment_reference" id="payment_reference" 
+                               placeholder="Transaction ID, Cheque Number, etc."
+                               class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    </div>
+                    
+                    <div>
+                        <label for="payment_proof" class="block text-sm font-medium text-gray-700">Payment Proof</label>
+                        <input type="file" name="payment_proof" id="payment_proof" 
+                               accept="image/*,.pdf"
+                               class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                        <p class="mt-1 text-xs text-gray-500">Upload receipt, screenshot, or proof of payment (JPG, PNG, PDF)</p>
+                    </div>
+                    
+                    <div>
+                        <label for="admin_notes" class="block text-sm font-medium text-gray-700">Admin Notes</label>
+                        <textarea name="admin_notes" id="admin_notes" rows="3"
+                                  placeholder="Additional notes about this payment..."
+                                  class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"></textarea>
+                    </div>
+                </div>
+                
+                <div class="flex justify-end space-x-3 mt-6">
+                    <button type="button" onclick="closePaymentModal()" 
+                            class="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500">
+                        Cancel
+                    </button>
+                    <button type="submit" 
+                            class="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+                        Mark as Paid
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+function openPaymentModal(commissionId, agentName, commissionAmount) {
+    document.getElementById('paymentModal').classList.remove('hidden');
+    document.getElementById('agentName').textContent = agentName;
+    document.getElementById('commissionAmount').textContent = 'RM ' + commissionAmount.toFixed(2);
+    document.getElementById('paymentForm').action = '/admin/commissions/' + commissionId + '/mark-paid';
+}
+
+function closePaymentModal() {
+    document.getElementById('paymentModal').classList.add('hidden');
+    document.getElementById('paymentForm').reset();
+}
+</script>
 @endsection

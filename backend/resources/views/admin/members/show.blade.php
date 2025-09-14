@@ -49,7 +49,7 @@
                     </div>
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Date of Birth</dt>
-                        <dd class="mt-1 text-sm text-gray-900">{{ $member->date_of_birth ? $member->date_of_birth->format('F j, Y') : 'Not provided' }}</dd>
+                        <dd class="mt-1 text-sm text-gray-900">{{ $member->date_of_birth ? \Carbon\Carbon::parse($member->date_of_birth)->format('F j, Y') : 'Not provided' }}</dd>
                     </div>
                     <div>
                         <dt class="text-sm font-medium text-gray-500">Gender</dt>
@@ -78,6 +78,49 @@
                 </div>
             </div>
         </div>
+
+        <!-- Network Hierarchy Information -->
+        @if($member->is_agent)
+        <div class="bg-white shadow sm:rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <h3 class="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2 mb-4">Network Hierarchy</h3>
+                <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Agent Code</dt>
+                        <dd class="mt-1 text-sm text-gray-900 font-mono">{{ $member->agent_code }}</dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Network Level</dt>
+                        <dd class="mt-1">
+                            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                                @if($member->mlm_level == 1) bg-green-100 text-green-800
+                                @elseif($member->mlm_level == 2) bg-yellow-100 text-yellow-800
+                                @elseif($member->mlm_level == 3) bg-orange-100 text-orange-800
+                                @elseif($member->mlm_level == 4) bg-red-100 text-red-800
+                                @else bg-gray-100 text-gray-800
+                                @endif">
+                                Level {{ $member->mlm_level }}
+                            </span>
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Referrer Agent</dt>
+                        <dd class="mt-1 text-sm text-gray-900">
+                            @if($member->referrerAgent)
+                                {{ $member->referrerAgent->name }} ({{ $member->referrer_agent_code }})
+                            @else
+                                Top Level Agent
+                            @endif
+                        </dd>
+                    </div>
+                    <div>
+                        <dt class="text-sm font-medium text-gray-500">Wallet Balance</dt>
+                        <dd class="mt-1 text-sm text-gray-900 font-semibold text-green-600">RM {{ number_format($member->wallet_balance ?? 0, 2) }}</dd>
+                    </div>
+                </div>
+            </div>
+        </div>
+        @endif
 
         <!-- Address Information -->
         <div class="bg-white shadow sm:rounded-lg">
@@ -154,63 +197,6 @@
             </div>
         </div>
 
-        <!-- Member Policies -->
-        <div class="bg-white shadow sm:rounded-lg">
-            <div class="px-4 py-5 sm:p-6">
-                <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-4">
-                    <h3 class="text-lg font-medium text-gray-900">Insurance Policies</h3>
-                    <a href="#" class="inline-flex items-center rounded-md bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-500">
-                        <svg class="-ml-0.5 mr-1.5 h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" />
-                        </svg>
-                        Add Policy
-                    </a>
-                </div>
-                
-                @if($member->policies->count() > 0)
-                    <div class="overflow-hidden shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
-                        <table class="min-w-full divide-y divide-gray-300">
-                            <thead class="bg-gray-50">
-                                <tr>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Policy Number</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Product</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Premium</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Start Date</th>
-                                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody class="bg-white divide-y divide-gray-200">
-                                @foreach($member->policies as $policy)
-                                    <tr>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ $policy->policy_number }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $policy->product->name }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap">
-                                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ $policy->status === 'active' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800' }}">
-                                                {{ ucfirst($policy->status) }}
-                                            </span>
-                                        </td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">RM {{ number_format($policy->monthly_premium, 2) }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ $policy->start_date ? $policy->start_date->format('M j, Y') : 'Not set' }}</td>
-                                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                            <a href="#" class="text-blue-600 hover:text-blue-900">View</a>
-                                        </td>
-                                    </tr>
-                                @endforeach
-                            </tbody>
-                        </table>
-                    </div>
-                @else
-                    <div class="text-center py-8">
-                        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
-                        <h3 class="mt-2 text-sm font-medium text-gray-900">No policies</h3>
-                        <p class="mt-1 text-sm text-gray-500">This member doesn't have any insurance policies yet.</p>
-                    </div>
-                @endif
-            </div>
-        </div>
 
         <!-- Payment History -->
         <div class="bg-white shadow sm:rounded-lg">

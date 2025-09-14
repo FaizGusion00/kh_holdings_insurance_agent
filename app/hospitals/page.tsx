@@ -66,8 +66,6 @@ export default function HospitalsPage() {
 															<ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-300" />
 														</div>
 														
-														{/* Enhanced Bottom Border Animation */}
-														<div className="absolute bottom-2 left-0 w-full h-1 bg-gradient-to-r from-blue-400 via-blue-500 to-blue-600 rounded-b-xl transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left shadow-lg"></div>
 													</div>
 												</div>
 											</Link>
@@ -96,9 +94,7 @@ export default function HospitalsPage() {
 															<span className="text-sm font-medium">View Clinics</span>
 															<ArrowRight size={16} className="group-hover:translate-x-1 transition-transform duration-300" />
 														</div>
-														
-														{/* Enhanced Bottom Border Animation */}
-														<div className="absolute bottom-0 left-0 w-full h-1.5 bg-gradient-to-r from-emerald-400 via-emerald-500 to-emerald-600 rounded-b-xl transform scale-x-0 group-hover:scale-x-100 transition-transform duration-500 origin-left shadow-lg"></div>
+													
 													</div>
 												</div>
 											</Link>

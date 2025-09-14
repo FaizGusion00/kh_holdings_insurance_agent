@@ -3,12 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Home, Compass, FileText, Hospital, UserRound, ChevronUp } from "lucide-react";
+import { Home, Compass, Wallet, Hospital, UserRound, ChevronUp, Shield } from "lucide-react";
 
 const items = [
 	{ href: "/dashboard", icon: Home, label: "Dashboard" },
 	{ href: "/explore", icon: Compass, label: "Explore" },
-	{ href: "/records", icon: FileText, label: "Records" },
+	{ href: "/agent-wallet", icon: Wallet, label: "Agent Wallet" },
 	{ href: "/hospitals", icon: Hospital, label: "Hospitals" },
 	{ href: "/profile", icon: UserRound, label: "Profile" },
 ];

@@ -217,12 +217,16 @@ interface MedicalInsuranceRegistrationFormProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: (registration: any) => void;
+  externalMode?: boolean;
+  agentCode?: string;
 }
 
 export default function MedicalInsuranceRegistrationForm({ 
   isOpen, 
   onClose, 
-  onSuccess 
+  onSuccess,
+  externalMode = false,
+  agentCode = ""
 }: MedicalInsuranceRegistrationFormProps) {
   const [plans, setPlans] = useState<MedicalInsurancePlan[]>([]);
   const [loading, setLoading] = useState(false);
@@ -613,11 +617,14 @@ export default function MedicalInsuranceRegistrationForm({
         email: (formData.email || '').trim(),
         height_cm: Number(formData.height_cm) || 0,
         weight_kg: Number(formData.weight_kg) || 0,
+        ...(externalMode && agentCode && { agent_code: agentCode }),
       };
       
       console.log('Payload being sent:', payload);
 
-      const response = await apiService.registerMedicalInsurance(payload);
+      const response = externalMode 
+        ? await apiService.registerMedicalInsuranceExternal(payload)
+        : await apiService.registerMedicalInsurance(payload);
       if (response.success && response.data && response.data.id) {
         setRegistrationId(response.data.id);
         setShowPaymentPage(true);
@@ -641,8 +648,16 @@ export default function MedicalInsuranceRegistrationForm({
   };
 
   const handlePaymentSuccess = (payment: any) => {
+    if (externalMode) {
+      // Show success message and redirect after delay
+      setError(""); // Clear any errors
+      setLoading(true);
+      // The parent component will handle the redirect
+    }
     onSuccess(payment);
-    onClose();
+    if (!externalMode) {
+      onClose();
+    }
   };
 
   const handlePaymentClose = () => {
@@ -768,7 +783,7 @@ export default function MedicalInsuranceRegistrationForm({
           </label>
           <input
             type="text"
-            value="AGT00001"
+            value={externalMode ? agentCode : "AGT00001"}
             disabled
             className="w-full px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-gray-600"
           />
@@ -1688,12 +1703,14 @@ export default function MedicalInsuranceRegistrationForm({
           >
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-800">Medical Insurance Registration</h2>
-              <button
-                onClick={onClose}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-600" />
-              </button>
+              {!externalMode && (
+                <button
+                  onClick={onClose}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-600" />
+                </button>
+              )}
             </div>
 
             <div className="p-6 space-y-6" key="registration-content">
@@ -1914,12 +1931,14 @@ export default function MedicalInsuranceRegistrationForm({
 
             <div className="p-6 border-t border-gray-200">
               <div className="flex gap-3 justify-end">
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
+                {!externalMode && (
+                  <button
+                    onClick={onClose}
+                    className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                )}
                 <button
                   onClick={handleSubmit}
                   disabled={loading}
