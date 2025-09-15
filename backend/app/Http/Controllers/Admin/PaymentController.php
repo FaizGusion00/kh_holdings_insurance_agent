@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\PaymentTransaction;
-use App\Models\Member;
 use App\Models\MemberPolicy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -184,7 +183,7 @@ class PaymentController extends Controller
      */
     public function edit(PaymentTransaction $payment)
     {
-        $members = Member::where('status', 'active')->get();
+        $members = User::where('status', 'active')->whereNotNull('plan_name')->get();
         $policies = MemberPolicy::where('status', 'active')->get();
         
         return view('admin.payments.edit', compact('payment', 'members', 'policies'));
@@ -235,7 +234,7 @@ class PaymentController extends Controller
             ]);
 
             // Handle member balance changes
-            $member = Member::find($request->member_id);
+            $member = User::find($request->member_id);
             
             if ($oldStatus === 'completed' && $request->status !== 'completed') {
                 // Payment was completed but now is not, reduce balance

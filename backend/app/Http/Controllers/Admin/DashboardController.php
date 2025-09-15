@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Member;
 use App\Models\Commission;
 use App\Models\CommissionRule;
 use App\Models\InsuranceProduct;
@@ -30,8 +29,8 @@ class DashboardController extends Controller
         $metrics = [
             'total_agents' => User::count(),
             'active_agents' => User::where('status', 'active')->count(),
-            'total_members' => Member::count(),
-            'active_members' => Member::where('status', 'active')->count(),
+            'total_members' => User::whereNotNull('plan_name')->count(),
+            'active_members' => User::whereNotNull('plan_name')->where('status', 'active')->count(),
             'total_products' => InsuranceProduct::where('is_active', true)->count(),
             'monthly_commissions' => Commission::where('month', $currentMonth)
                                               ->where('year', $currentYear)
@@ -104,10 +103,10 @@ class DashboardController extends Controller
         // Top performing agents
         $topAgents = User::selectRaw('
                 users.name, users.agent_code,
-                COUNT(members.id) as total_members,
+                COUNT(downlines.id) as total_members,
                 SUM(commissions.commission_amount) as total_commission
             ')
-            ->leftJoin('members', 'users.id', '=', 'members.user_id')
+            ->leftJoin('users as downlines', 'users.id', '=', 'downlines.referrer_id')
             ->leftJoin('commissions', 'users.id', '=', 'commissions.user_id')
             ->groupBy('users.id', 'users.name', 'users.agent_code')
             ->orderBy('total_commission', 'desc')
@@ -117,15 +116,16 @@ class DashboardController extends Controller
         // Recent activities
         $recentActivities = collect();
         
-        // Recent members
-        $recentMembers = Member::with('agent')
+        // Recent members (users with plans)
+        $recentMembers = User::whereNotNull('plan_name')
+            ->with('referrer')
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get()
             ->map(function ($member) {
                 return [
                     'type' => 'member_registered',
-                    'message' => "New member {$member->name} registered by " . ($member->agent ? $member->agent->name : 'Unknown Agent'),
+                    'message' => "New member {$member->name} registered by " . ($member->referrer ? $member->referrer->name : 'Unknown Agent'),
                     'time' => $member->created_at->diffForHumans(),
                     'icon' => 'user-plus',
                     'color' => 'text-blue-600',
@@ -148,14 +148,14 @@ class DashboardController extends Controller
             });
         
         // Recent payments
-        $recentPayments = PaymentTransaction::with('member')
+        $recentPayments = PaymentTransaction::with('user')
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get()
             ->map(function ($payment) {
                 return [
                     'type' => 'payment_received',
-                    'message' => "Payment of RM " . number_format($payment->amount, 2) . " received from " . ($payment->member ? $payment->member->name : 'Unknown Member'),
+                    'message' => "Payment of RM " . number_format($payment->amount, 2) . " received from " . ($payment->user ? $payment->user->name : 'Unknown Member'),
                     'time' => $payment->created_at->diffForHumans(),
                     'icon' => 'credit-card',
                     'color' => 'text-purple-600',
@@ -169,8 +169,9 @@ class DashboardController extends Controller
             })
             ->take(10);
         
-        // Chart data for member growth
-        $memberGrowth = Member::selectRaw('
+        // Chart data for member growth (users with plans)
+        $memberGrowth = User::whereNotNull('plan_name')
+            ->selectRaw('
                 DATE(created_at) as date,
                 COUNT(*) as count
             ')

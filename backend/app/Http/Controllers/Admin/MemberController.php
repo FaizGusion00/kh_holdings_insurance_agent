@@ -3,9 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
-use App\Models\Member;
 use App\Models\User;
-use App\Models\MemberPolicy;
 use App\Models\PaymentTransaction;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -13,11 +11,11 @@ use Illuminate\Support\Facades\Validator;
 class MemberController extends Controller
 {
     /**
-     * Display a listing of members.
+     * Display a listing of members (now consolidated users).
      */
     public function index(Request $request)
     {
-        $query = Member::with(['agent', 'referrerAgent'])
+        $query = User::with(['referrer'])
             ->withCount(['paymentTransactions'])
             ->withSum('paymentTransactions', 'amount');
         
@@ -27,7 +25,7 @@ class MemberController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('nric', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
+                  ->orWhere('phone_number', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%")
                   ->orWhere('agent_code', 'like', "%{$search}%");
             });
@@ -43,18 +41,20 @@ class MemberController extends Controller
             $query->where('mlm_level', $request->level);
         }
         
-        // Filter by agent type
+        // Filter by agent type (now all are agents in consolidated users table)
         if ($request->filled('type')) {
-            if ($request->type === 'agents') {
-                $query->where('is_agent', true);
+            if ($request->type === 'active_agents') {
+                $query->where('status', 'active')
+                      ->whereNotNull('agent_code')
+                      ->whereNotNull('mlm_activation_date');
             } elseif ($request->type === 'customers') {
-                $query->where('is_agent', false);
+                $query->whereNotNull('plan_name'); // Users who have purchased plans
             }
         }
         
-        // Filter by agent
+        // Filter by referring agent
         if ($request->filled('agent')) {
-            $query->where('user_id', $request->agent);
+            $query->where('referrer_id', $request->agent);
         }
         
         // Filter by registration date
@@ -67,15 +67,18 @@ class MemberController extends Controller
         }
         
         $members = $query->orderBy('mlm_level', 'asc')->orderBy('created_at', 'desc')->paginate(15);
-        $agents = User::where('status', 'active')->get();
+        $agents = User::whereNotNull('agent_code')
+                      ->where('status', 'active')
+                      ->orderBy('name')
+                      ->get();
         
         // Get network statistics
         $networkStats = [
-            'total_agents' => Member::where('is_agent', true)->count(),
-            'level_1_agents' => Member::where('is_agent', true)->where('mlm_level', 1)->count(),
-            'level_2_agents' => Member::where('is_agent', true)->where('mlm_level', 2)->count(),
-            'level_3_agents' => Member::where('is_agent', true)->where('mlm_level', 3)->count(),
-            'total_customers' => Member::where('is_agent', false)->count(),
+            'total_agents' => User::whereNotNull('agent_code')->where('status', 'active')->count(),
+            'level_1_agents' => User::whereNotNull('agent_code')->where('mlm_level', 1)->count(),
+            'level_2_agents' => User::whereNotNull('agent_code')->where('mlm_level', 2)->count(),
+            'level_3_agents' => User::whereNotNull('agent_code')->where('mlm_level', 3)->count(),
+            'total_customers' => User::whereNotNull('plan_name')->count(),
         ];
         
         return view('admin.members.index', compact('members', 'agents', 'networkStats'));
@@ -120,8 +123,7 @@ class MemberController extends Controller
                 ->withInput();
         }
 
-        $member = Member::create([
-            'user_id' => $request->user_id,
+        $member = User::create([
             'name' => $request->name,
             'nric' => $request->nric,
             'phone' => $request->phone,
@@ -239,21 +241,21 @@ class MemberController extends Controller
     private function deleteAgentWithCascade(Member $agent)
     {
         // Get all agents under this agent (their downline)
-        $downlineAgents = Member::where('referrer_agent_id', $agent->user_id)
-            ->where('is_agent', true)
+        $downlineAgents = User::where('referrer_id', $agent->id)
+            ->whereNotNull('agent_code')
             ->get();
 
         // Get all customers under this agent
-        $customers = Member::where('user_id', $agent->user_id)
-            ->where('is_agent', false)
+        $customers = User::where('referrer_id', $agent->id)
+            ->whereNotNull('plan_name')
             ->get();
 
         // Check if any downline agents have customers or policies
         $hasActiveDownline = false;
         foreach ($downlineAgents as $downlineAgent) {
-            if ($downlineAgent->policies()->count() > 0 || 
+            if ($downlineAgent->medicalInsurancePolicies()->count() > 0 || 
                 $downlineAgent->paymentTransactions()->count() > 0 ||
-                Member::where('user_id', $downlineAgent->user_id)->where('is_agent', false)->count() > 0) {
+                User::where('referrer_id', $downlineAgent->id)->whereNotNull('plan_name')->count() > 0) {
                 $hasActiveDownline = true;
                 break;
             }

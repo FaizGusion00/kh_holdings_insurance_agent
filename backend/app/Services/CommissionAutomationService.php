@@ -5,8 +5,6 @@ namespace App\Services;
 use App\Models\CommissionRule;
 use App\Models\Commission;
 use App\Models\User;
-use App\Models\Member;
-use App\Models\MemberPolicy;
 use App\Models\MedicalInsuranceRegistration;
 use App\Models\AgentWallet;
 use App\Models\WalletTransaction;
@@ -70,11 +68,17 @@ class CommissionAutomationService
                     'payment_frequency' => $paymentFrequency
                 ]);
 
-                // Determine payer's user (the customer who becomes an agent) and compute uplines
+                // Find the user who paid for the plan using NRIC to get their agent_code
                 $payerUser = User::where('nric', $customer['nric'] ?? null)->first();
-                $networkLevels = $payerUser
-                    ? $this->getUplinesFromPayer($payerUser)
-                    : $this->getAgentNetworkLevels($registration->agent_id);
+                
+                if (!$payerUser) {
+                    Log::warning("No user found for NRIC: " . ($customer['nric'] ?? 'null'));
+                    continue;
+                }
+                
+                // Get the network levels starting from the payer's referrer
+                // The payer gets the plan, their referrer gets L1 commission, referrer's referrer gets L2, etc.
+                $networkLevels = $this->getCommissionNetworkLevels($payerUser);
                 
                 // Process commission for each network level (tier1 = immediate upline)
                 foreach ($networkLevels as $level => $agentId) {
@@ -91,7 +95,10 @@ class CommissionAutomationService
                         $totalCommissions += $commission->commission_amount;
                         $processedCount++;
                         
-                        Log::info("Created commission for agent", [
+                        // Auto-disburse commission to agent wallet
+                        $this->disburseCommissionToWallet($agentId, $commission->commission_amount, $commission->id);
+                        
+                        Log::info("Created and disbursed commission for agent", [
                             'agent_id' => $agentId,
                             'tier_level' => $level,
                             'commission_amount' => $commission->commission_amount,
@@ -163,8 +170,8 @@ class CommissionAutomationService
             $totalCommissions = 0;
             $processedCount = 0;
 
-            // Get the agent's network levels (up to 5 levels)
-            $networkLevels = $this->getAgentNetworkLevels($policy->member->user_id);
+            // Get the agent's network levels (up to 5 levels) - now using policy user directly
+            $networkLevels = $this->getAgentNetworkLevels($policy->user_id);
             
             // Process commission for each network level
             foreach ($networkLevels as $level => $agentId) {
@@ -174,7 +181,7 @@ class CommissionAutomationService
                     $policy->payment_frequency,
                     $level,
                     $policy->id,
-                    $policy->member_id
+                    $policy->user_id
                 );
                 
                 if ($commission) {
@@ -207,28 +214,67 @@ class CommissionAutomationService
     /**
      * Get agent network levels (up to 5 levels)
      */
-    protected function getAgentNetworkLevels($agentId)
+    /**
+     * Get commission network levels for a payer
+     * Level 1 = immediate referrer (who gets L1 commission)
+     * Level 2 = referrer's referrer (who gets L2 commission), etc.
+     */
+    protected function getCommissionNetworkLevels($payerUser)
     {
         $networkLevels = [];
-        $currentAgentId = $agentId;
+        $currentUser = $payerUser;
         $level = 1;
 
-        // Level 1 is the agent themselves
-        while ($currentAgentId && $level <= 5) {
-            $networkLevels[$level] = $currentAgentId;
+        Log::info("Starting commission network calculation for payer", [
+            'payer_agent_code' => $payerUser->agent_code,
+            'payer_referrer_code' => $payerUser->referrer_code
+        ]);
 
-            $referral = \App\Models\Referral::where('user_id', $currentAgentId)->first();
-            if ($referral && $referral->referrer_code) {
-                $upline = User::where('agent_code', $referral->referrer_code)->first();
-                $currentAgentId = $upline?->id;
-            } else {
+        // Walk up the referral chain to find commission recipients
+        while ($currentUser && $currentUser->referrer_code && $level <= 5) {
+            // Find the referrer by agent_code
+            $referrer = User::where('agent_code', $currentUser->referrer_code)->first();
+            
+            if (!$referrer) {
+                Log::warning("Referrer not found for agent_code: " . $currentUser->referrer_code);
                 break;
             }
 
+            // This referrer gets commission at this level
+            $networkLevels[$level] = $referrer->id;
+            
+            Log::info("Commission Level {$level}", [
+                'recipient_agent_code' => $referrer->agent_code,
+                'recipient_name' => $referrer->name,
+                'recipient_id' => $referrer->id
+            ]);
+
+            // Move up to the next level
+            $currentUser = $referrer;
             $level++;
         }
 
+        Log::info("Commission network levels calculated", [
+            'total_levels' => count($networkLevels),
+            'levels' => $networkLevels
+        ]);
+
         return $networkLevels;
+    }
+
+    /**
+     * Legacy method for backward compatibility
+     */
+    protected function getAgentNetworkLevels($agentId)
+    {
+        // Find the user by ID
+        $user = User::find($agentId);
+        if (!$user) {
+            return [];
+        }
+
+        // Use the new commission network calculation
+        return $this->getCommissionNetworkLevels($user);
     }
 
     /**
@@ -596,5 +642,50 @@ class CommissionAutomationService
         }
 
         return $summary;
+    }
+
+    /**
+     * Automatically disburse commission to agent wallet
+     */
+    protected function disburseCommissionToWallet($agentId, $commissionAmount, $commissionId)
+    {
+        try {
+            // Ensure agent has a wallet
+            $wallet = AgentWallet::firstOrCreate(
+                ['user_id' => $agentId],
+                ['balance' => 0.00]
+            );
+
+            // Add commission to wallet balance
+            $wallet->increment('balance', $commissionAmount);
+
+            // Create wallet transaction record
+            WalletTransaction::create([
+                'user_id' => $agentId,
+                'wallet_id' => $wallet->id,
+                'type' => 'commission',
+                'amount' => $commissionAmount,
+                'description' => 'Commission payment',
+                'reference_id' => $commissionId,
+                'status' => 'completed',
+                'processed_at' => now(),
+            ]);
+
+            // Send notification to agent
+            $this->notificationService->sendCommissionNotification($agentId, $commissionAmount);
+
+            Log::info("Commission disbursed to wallet", [
+                'agent_id' => $agentId,
+                'commission_amount' => $commissionAmount,
+                'wallet_balance' => $wallet->balance
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error("Failed to disburse commission to wallet", [
+                'agent_id' => $agentId,
+                'commission_amount' => $commissionAmount,
+                'error' => $e->getMessage()
+            ]);
+        }
     }
 }

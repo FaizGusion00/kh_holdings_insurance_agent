@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Member;
 use App\Models\Commission;
 use App\Models\PaymentTransaction;
 use App\Models\MedicalCase;
@@ -115,16 +114,16 @@ class DashboardController extends Controller
      */
     private function getStatsData($user, $month, $year)
     {
-        // Total members
-        $totalMembers = Member::where('user_id', $user->id)->count();
+        // Total customers/downlines (users directly referred by this agent)
+        $totalMembers = User::where('referrer_id', $user->id)->count();
         
-        // Active members this month
-        $activeMembers = Member::where('user_id', $user->id)
+        // Active customers
+        $activeMembers = User::where('referrer_id', $user->id)
             ->where('status', 'active')
             ->count();
         
-        // New members this month
-        $newMembers = Member::where('user_id', $user->id)
+        // New customers this month
+        $newMembers = User::where('referrer_id', $user->id)
             ->whereMonth('created_at', $month)
             ->whereYear('created_at', $year)
             ->count();
@@ -174,8 +173,8 @@ class DashboardController extends Controller
     {
         $activities = [];
 
-        // Recent member registrations
-        $recentMembers = Member::where('user_id', $user->id)
+        // Recent user registrations (direct referrals)
+        $recentMembers = User::where('referrer_id', $user->id)
             ->orderBy('created_at', 'desc')
             ->limit(5)
             ->get();
@@ -184,7 +183,7 @@ class DashboardController extends Controller
             $activities[] = [
                 'type' => 'member_registration',
                 'title' => 'New Member Registered',
-                'description' => "Member {$member->name} registered successfully",
+                'description' => "User {$member->name} registered successfully",
                 'date' => $member->created_at,
                 'icon' => 'user-plus',
                 'color' => 'green'
@@ -210,9 +209,7 @@ class DashboardController extends Controller
         }
 
         // Recent payments
-        $recentPayments = PaymentTransaction::whereHas('policy.member', function($query) use ($user) {
-            $query->where('user_id', $user->id);
-        })
+        $recentPayments = PaymentTransaction::where('user_id', $user->id)
         ->where('status', 'completed')
         ->orderBy('transaction_date', 'desc')
         ->limit(5)
@@ -222,7 +219,7 @@ class DashboardController extends Controller
             $activities[] = [
                 'type' => 'payment_received',
                 'title' => 'Payment Received',
-                'description' => "RM {$payment->amount} payment from {$payment->policy->member->name}",
+                'description' => "RM {$payment->amount} payment",
                 'date' => $payment->transaction_date,
                 'icon' => 'credit-card',
                 'color' => 'green'
@@ -266,7 +263,7 @@ class DashboardController extends Controller
             $currentDate->subMonth();
         }
 
-        // Member growth trend
+        // User/customer growth trend (direct referrals)
         $memberGrowth = [];
         $currentDate = Carbon::now();
         
@@ -274,7 +271,7 @@ class DashboardController extends Controller
             $checkMonth = $currentDate->month;
             $checkYear = $currentDate->year;
             
-            $newMembers = Member::where('user_id', $user->id)
+            $newMembers = User::where('referrer_id', $user->id)
                 ->whereMonth('created_at', $checkMonth)
                 ->whereYear('created_at', $checkYear)
                 ->count();
@@ -330,8 +327,8 @@ class DashboardController extends Controller
                 ->where('status', 'paid')
                 ->sum('commission_amount');
             
-            // Member data
-            $newMembers = Member::where('user_id', $user->id)
+            // User data (new direct referrals)
+            $newMembers = User::where('referrer_id', $user->id)
                 ->whereMonth('created_at', $month)
                 ->whereYear('created_at', $year)
                 ->count();

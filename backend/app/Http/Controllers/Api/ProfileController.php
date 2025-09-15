@@ -16,7 +16,7 @@ class ProfileController extends Controller
      */
     public function show(Request $request)
     {
-        $user = $request->user()->load(['members', 'referral']);
+        $user = $request->user()->load(['downlines', 'referral']);
 
         return response()->json([
             'success' => true,

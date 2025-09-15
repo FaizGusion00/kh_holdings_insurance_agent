@@ -164,7 +164,7 @@ class AuthController extends Controller
      */
     public function me(Request $request)
     {
-        $user = $request->user()->load(['referral', 'members']);
+        $user = $request->user()->load(['referral', 'downlines']);
         
         return response()->json([
             'success' => true,

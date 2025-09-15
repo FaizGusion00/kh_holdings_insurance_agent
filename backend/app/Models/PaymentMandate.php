@@ -12,7 +12,6 @@ class PaymentMandate extends Model
 
     protected $fillable = [
         'user_id',
-        'member_id',
         'policy_id',
         'mandate_type',
         'frequency',
@@ -49,13 +48,6 @@ class PaymentMandate extends Model
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Get the member that owns the mandate.
-     */
-    public function member(): BelongsTo
-    {
-        return $this->belongsTo(Member::class);
-    }
 
     /**
      * Get the policy that owns the mandate.

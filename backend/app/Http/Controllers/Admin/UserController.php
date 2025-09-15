@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Member;
 use App\Models\Commission;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
@@ -18,7 +17,7 @@ class UserController extends Controller
      */
     public function index(Request $request)
     {
-        $query = User::withCount(['members', 'commissions'])
+        $query = User::withCount(['downlines', 'commissions'])
             ->withSum('commissions', 'commission_amount');
         
         // Search functionality
@@ -116,12 +115,12 @@ class UserController extends Controller
      */
     public function show(User $user)
     {
-        $user->load(['members', 'commissions', 'referral']);
+        $user->load(['downlines', 'commissions', 'referral']);
         
         // Get performance statistics
         $stats = [
-            'total_members' => $user->members()->count(),
-            'active_members' => $user->members()->where('status', 'active')->count(),
+            'total_members' => $user->downlines()->count(),
+            'active_members' => $user->downlines()->where('status', 'active')->count(),
             'total_commission' => $user->commissions()->sum('commission_amount'),
             'monthly_commission' => $user->commissions()
                 ->whereMonth('created_at', now()->month)
@@ -188,18 +187,18 @@ class UserController extends Controller
     public function destroy(User $user)
     {
         try {
-            // Check if this user has a corresponding member record
-            $member = Member::where('user_id', $user->id)->first();
+            // Check if this user has a plan (is a customer)
+            $hasPlan = $user->plan_name !== null;
             
-            if ($member) {
-                // If it's an agent in members table, use the cascading delete
-                if ($member->is_agent) {
-                    return $this->deleteAgentWithCascade($member);
+            if ($hasPlan) {
+                // If it's an agent, use the cascading delete
+                if ($user->agent_code) {
+                    return $this->deleteAgentWithCascade($user);
                 } else {
                     // If it's a customer, delete normally
-                    $member->policies()->delete();
-                    $member->paymentTransactions()->delete();
-                    $member->delete();
+                    $user->medicalInsurancePolicies()->delete();
+                    $user->paymentTransactions()->delete();
+                    $user->delete();
                 }
             }
 
@@ -230,24 +229,24 @@ class UserController extends Controller
     /**
      * Delete agent with cascading deletes for their network
      */
-    private function deleteAgentWithCascade(Member $agent)
+    private function deleteAgentWithCascade(User $agent)
     {
         // Get all agents under this agent (their downline)
-        $downlineAgents = Member::where('referrer_agent_id', $agent->user_id)
-            ->where('is_agent', true)
+        $downlineAgents = User::where('referrer_id', $agent->id)
+            ->whereNotNull('agent_code')
             ->get();
 
         // Get all customers under this agent
-        $customers = Member::where('user_id', $agent->user_id)
-            ->where('is_agent', false)
+        $customers = User::where('referrer_id', $agent->id)
+            ->whereNotNull('plan_name')
             ->get();
 
         // Check if any downline agents have customers or policies
         $hasActiveDownline = false;
         foreach ($downlineAgents as $downlineAgent) {
-            if ($downlineAgent->policies()->count() > 0 || 
+            if ($downlineAgent->medicalInsurancePolicies()->count() > 0 || 
                 $downlineAgent->paymentTransactions()->count() > 0 ||
-                Member::where('user_id', $downlineAgent->user_id)->where('is_agent', false)->count() > 0) {
+                User::where('referrer_id', $downlineAgent->id)->whereNotNull('plan_name')->count() > 0) {
                 $hasActiveDownline = true;
                 break;
             }

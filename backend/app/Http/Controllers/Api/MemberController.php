@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Member;
+use App\Models\User;
 use App\Models\Policy;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\DB;
 class MemberController extends Controller
 {
     /**
-     * Get all members for the authenticated agent.
+     * Get all members (users) for the authenticated agent.
      */
     public function index(Request $request)
     {
@@ -30,8 +30,8 @@ class MemberController extends Controller
             ], 422);
         }
 
-        $query = Member::where('user_id', $request->user()->id)
-            ->with(['policies', 'policies.product']);
+        $query = User::where('referrer_id', $request->user()->id)
+            ->with(['medicalInsurancePolicies', 'medicalInsurancePolicies.product']);
 
         // Apply search filter
         if ($request->has('search')) {
@@ -39,7 +39,7 @@ class MemberController extends Controller
             $query->where(function($q) use ($search) {
                 $q->where('name', 'like', "%{$search}%")
                   ->orWhere('nric', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%")
+                  ->orWhere('phone_number', 'like', "%{$search}%")
                   ->orWhere('email', 'like', "%{$search}%");
             });
         }
@@ -59,14 +59,14 @@ class MemberController extends Controller
     }
 
     /**
-     * Store a new member.
+     * Store a new member (user).
      */
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
             'name' => 'required|string|max:255',
-            'nric' => 'required|string|max:20|unique:members,nric',
-            'phone' => 'required|string|max:20',
+            'nric' => 'required|string|max:20|unique:users,nric',
+            'phone_number' => 'required|string|max:20',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
             'date_of_birth' => 'nullable|date',
@@ -89,12 +89,12 @@ class MemberController extends Controller
 
             $user = $request->user();
             
-            $member = Member::create([
-                'user_id' => $user->id,
+            $member = User::create([
                 'name' => $request->name,
                 'nric' => $request->nric,
-                'phone' => $request->phone,
-                'email' => $request->email,
+                'phone_number' => $request->phone_number,
+                'email' => $request->email ?? (strtolower(str_replace(' ', '', $request->name)) . '@wekongsi.local'),
+                'password' => bcrypt('Temp1234!'),
                 'address' => $request->address,
                 'date_of_birth' => $request->date_of_birth,
                 'gender' => $request->gender,
@@ -103,8 +103,12 @@ class MemberController extends Controller
                 'emergency_contact_phone' => $request->emergency_contact_phone,
                 'status' => 'active',
                 'registration_date' => now(),
-                'referrer_code' => $user->agent_code, // Set referrer_code to current user's agent_code
-                'referrer_id' => $user->id, // Set referrer_id to current user's ID
+                'referrer_code' => $user->agent_code,
+                'referrer_id' => $user->id,
+                'agent_code' => User::generateAgentCode(),
+                'agent_number' => User::generateAgentNumber(),
+                'mlm_level' => $user->mlm_level + 1,
+                'mlm_activation_date' => now(),
             ]);
 
             DB::commit();
@@ -112,7 +116,7 @@ class MemberController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Member created successfully',
-                'data' => $member->load(['policies', 'policies.product'])
+                'data' => $member->load(['medicalInsurancePolicies', 'medicalInsurancePolicies.product'])
             ], 201);
 
         } catch (\Exception $e) {
@@ -126,12 +130,12 @@ class MemberController extends Controller
     }
 
     /**
-     * Get a specific member.
+     * Get a specific member (user).
      */
-    public function show(Request $request, Member $member)
+    public function show(Request $request, User $member)
     {
         // Ensure the member belongs to the authenticated agent
-        if ($member->user_id !== $request->user()->id) {
+        if ($member->referrer_id !== $request->user()->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Member not found'
@@ -140,17 +144,17 @@ class MemberController extends Controller
 
         return response()->json([
             'success' => true,
-            'data' => $member->load(['policies', 'policies.product', 'policies.paymentTransactions'])
+            'data' => $member->load(['medicalInsurancePolicies', 'medicalInsurancePolicies.product', 'paymentTransactions'])
         ]);
     }
 
     /**
-     * Update a member.
+     * Update a member (user).
      */
-    public function update(Request $request, Member $member)
+    public function update(Request $request, User $member)
     {
         // Ensure the member belongs to the authenticated agent
-        if ($member->user_id !== $request->user()->id) {
+        if ($member->referrer_id !== $request->user()->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Member not found'
@@ -159,15 +163,15 @@ class MemberController extends Controller
 
         $validator = Validator::make($request->all(), [
             'name' => 'sometimes|required|string|max:255',
-            'ic_number' => 'sometimes|required|string|max:20|unique:members,ic_number,' . $member->id,
-            'phone' => 'sometimes|required|string|max:20',
+            'nric' => 'sometimes|required|string|max:20|unique:users,nric,' . $member->id,
+            'phone_number' => 'sometimes|required|string|max:20',
             'email' => 'nullable|email|max:255',
             'address' => 'nullable|string|max:500',
             'date_of_birth' => 'nullable|date',
             'gender' => 'nullable|in:male,female',
             'occupation' => 'nullable|string|max:255',
-            'emergency_contact' => 'nullable|string|max:255',
-            'emergency_phone' => 'nullable|string|max:20',
+            'emergency_contact_name' => 'nullable|string|max:255',
+            'emergency_contact_phone' => 'nullable|string|max:20',
             'status' => 'sometimes|required|in:active,inactive,pending',
         ]);
 
@@ -181,15 +185,15 @@ class MemberController extends Controller
 
         try {
             $member->update($request->only([
-                'name', 'ic_number', 'phone', 'email', 'address',
+                'name', 'nric', 'phone_number', 'email', 'address',
                 'date_of_birth', 'gender', 'occupation',
-                'emergency_contact', 'emergency_phone', 'status'
+                'emergency_contact_name', 'emergency_contact_phone', 'status'
             ]));
 
             return response()->json([
                 'success' => true,
                 'message' => 'Member updated successfully',
-                'data' => $member->load(['policies', 'policies.product'])
+                'data' => $member->load(['medicalInsurancePolicies', 'medicalInsurancePolicies.product'])
             ]);
 
         } catch (\Exception $e) {
@@ -202,12 +206,12 @@ class MemberController extends Controller
     }
 
     /**
-     * Delete a member.
+     * Delete a member (user).
      */
-    public function destroy(Request $request, Member $member)
+    public function destroy(Request $request, User $member)
     {
         // Ensure the member belongs to the authenticated agent
-        if ($member->user_id !== $request->user()->id) {
+        if ($member->referrer_id !== $request->user()->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Member not found'
@@ -215,7 +219,7 @@ class MemberController extends Controller
         }
 
         // Check if member has active policies
-        if ($member->policies()->where('status', 'active')->exists()) {
+        if ($member->medicalInsurancePolicies()->where('status', 'active')->exists()) {
             return response()->json([
                 'success' => false,
                 'message' => 'Cannot delete member with active policies'
@@ -240,19 +244,19 @@ class MemberController extends Controller
     }
 
     /**
-     * Get policies for a specific member.
+     * Get policies for a specific member (user).
      */
-    public function getPolicies(Request $request, Member $member)
+    public function getPolicies(Request $request, User $member)
     {
         // Ensure the member belongs to the authenticated agent
-        if ($member->user_id !== $request->user()->id) {
+        if ($member->referrer_id !== $request->user()->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Member not found'
             ], 404);
         }
 
-        $policies = $member->policies()
+        $policies = $member->medicalInsurancePolicies()
             ->with(['product', 'paymentTransactions'])
             ->orderBy('created_at', 'desc')
             ->get();
@@ -264,12 +268,12 @@ class MemberController extends Controller
     }
 
     /**
-     * Create a new policy for a member.
+     * Create a new policy for a member (user).
      */
-    public function createPolicy(Request $request, Member $member)
+    public function createPolicy(Request $request, User $member)
     {
         // Ensure the member belongs to the authenticated agent
-        if ($member->user_id !== $request->user()->id) {
+        if ($member->referrer_id !== $request->user()->id) {
             return response()->json([
                 'success' => false,
                 'message' => 'Member not found'
@@ -278,7 +282,7 @@ class MemberController extends Controller
 
         $validator = Validator::make($request->all(), [
             'product_id' => 'required|exists:insurance_products,id',
-            'policy_number' => 'required|string|max:100|unique:policies,policy_number',
+            'policy_number' => 'required|string|max:100|unique:medical_insurance_policies,policy_number',
             'start_date' => 'required|date|after:today',
             'end_date' => 'required|date|after:start_date',
             'premium_amount' => 'required|numeric|min:0',
@@ -298,8 +302,8 @@ class MemberController extends Controller
         try {
             DB::beginTransaction();
 
-            $policy = Policy::create([
-                'member_id' => $member->id,
+            $policy = \App\Models\MedicalInsurancePolicy::create([
+                'user_id' => $member->id,
                 'product_id' => $request->product_id,
                 'policy_number' => $request->policy_number,
                 'start_date' => $request->start_date,
@@ -315,7 +319,7 @@ class MemberController extends Controller
             return response()->json([
                 'success' => true,
                 'message' => 'Policy created successfully',
-                'data' => $policy->load(['product', 'member'])
+                'data' => $policy->load(['product', 'user'])
             ], 201);
 
         } catch (\Exception $e) {

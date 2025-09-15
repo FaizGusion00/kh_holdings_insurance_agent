@@ -10,8 +10,7 @@ class PaymentTransaction extends Model
     use HasFactory;
 
     protected $fillable = [
-        'member_id',
-        'user_id',
+        'user_id', // Now primary reference to users table
         'policy_id',
         'amount',
         'payment_type',
@@ -36,15 +35,7 @@ class PaymentTransaction extends Model
     ];
 
     /**
-     * Get the member who made this payment.
-     */
-    public function member()
-    {
-        return $this->belongsTo(Member::class);
-    }
-
-    /**
-     * Get the user (agent) who made this payment.
+     * Get the user who made this payment.
      */
     public function user()
     {

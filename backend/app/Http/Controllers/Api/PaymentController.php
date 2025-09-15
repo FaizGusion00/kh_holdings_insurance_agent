@@ -8,7 +8,6 @@ use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use App\Models\PaymentTransaction;
 use App\Models\PaymentMandate;
-use App\Models\Member;
 use App\Models\MemberPolicy;
 
 class PaymentController extends Controller
@@ -131,8 +130,8 @@ class PaymentController extends Controller
         }
 
         // Verify the member belongs to the authenticated agent
-        $member = Member::where('id', $request->member_id)
-            ->where('user_id', $request->user()->id)
+        $member = User::where('id', $request->member_id)
+            ->where('referrer_id', $request->user()->id)
             ->first();
 
         if (!$member) {
@@ -207,8 +206,8 @@ class PaymentController extends Controller
         }
 
         // Verify the member belongs to the authenticated agent
-        $member = Member::where('id', $request->member_id)
-            ->where('user_id', $request->user()->id)
+        $member = User::where('id', $request->member_id)
+            ->where('referrer_id', $request->user()->id)
             ->first();
 
         if (!$member) {

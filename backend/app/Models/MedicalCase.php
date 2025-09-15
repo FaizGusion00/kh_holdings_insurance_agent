@@ -10,7 +10,7 @@ class MedicalCase extends Model
     use HasFactory;
 
     protected $fillable = [
-        'member_id',
+        'user_id',
         'hospital_id',
         'clinic_id',
         'case_number',
@@ -35,11 +35,11 @@ class MedicalCase extends Model
     ];
 
     /**
-     * Get the member this case belongs to.
+     * Get the user this case belongs to.
      */
-    public function member()
+    public function user()
     {
-        return $this->belongsTo(Member::class);
+        return $this->belongsTo(User::class);
     }
 
     /**

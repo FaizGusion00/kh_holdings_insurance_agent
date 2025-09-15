@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\Member;
 use App\Models\Commission;
 use App\Models\InsuranceProduct;
 use App\Models\PaymentTransaction;
@@ -54,7 +53,7 @@ class ReportController extends Controller
         })->sortByDesc('total_revenue');
         
         // Sales by agent (top performing agents)
-        $topAgents = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
+        $topAgents = User::withCount(['downlines' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->withSum(['commissions' => function ($query) use ($dateFrom, $dateTo) {
@@ -226,7 +225,7 @@ class ReportController extends Controller
         }
         
         // Member registration by month (last 12 months)
-        $memberRegistrationByMonth = Member::selectRaw('
+        $memberRegistrationByMonth = User::whereNotNull('plan_name')->selectRaw('
                 DATE_FORMAT(created_at, "%Y-%m") as month,
                 COUNT(*) as total_members
             ')
@@ -236,14 +235,14 @@ class ReportController extends Controller
             ->get();
         
         // Member registration by agent
-        $membersByAgent = User::withCount(['members' => function ($query) use ($dateFrom, $dateTo) {
+        $membersByAgent = User::withCount(['downlines' => function ($query) use ($dateFrom, $dateTo) {
             $query->whereBetween('created_at', [$dateFrom, $dateTo]);
         }])
         ->get()
         ->map(function ($agent) {
-            $totalMembers = $agent->members_count ?? 0;
-            $activeMembers = $agent->members()->where('status', 'active')->count();
-            $newMembersMonth = $agent->members()
+            $totalMembers = $agent->downlines_count ?? 0;
+            $activeMembers = $agent->downlines()->where('status', 'active')->count();
+            $newMembersMonth = $agent->downlines()
                 ->whereMonth('created_at', Carbon::now()->month)
                 ->whereYear('created_at', Carbon::now()->year)
                 ->count();
@@ -262,15 +261,15 @@ class ReportController extends Controller
         $agents = User::where('status', 'active')->get();
         
         // Calculate summary statistics
-        $totalMembers = Member::count();
-        $newMembersMonth = Member::whereMonth('created_at', Carbon::now()->month)
+        $totalMembers = User::whereNotNull('plan_name')->count();
+        $newMembersMonth = User::whereNotNull('plan_name')->whereMonth('created_at', Carbon::now()->month)
             ->whereYear('created_at', Carbon::now()->year)
             ->count();
-        $activeMembers = Member::where('status', 'active')->count();
+        $activeMembers = User::whereNotNull('plan_name')->where('status', 'active')->count();
         
         // Calculate growth rate (compare with previous month)
         $previousMonth = Carbon::now()->subMonth();
-        $previousMonthMembers = Member::whereMonth('created_at', $previousMonth->month)
+        $previousMonthMembers = User::whereNotNull('plan_name')->whereMonth('created_at', $previousMonth->month)
             ->whereYear('created_at', $previousMonth->year)
             ->count();
         $growthRate = $previousMonthMembers > 0 ? (($newMembersMonth - $previousMonthMembers) / $previousMonthMembers) * 100 : 0;
@@ -286,7 +285,7 @@ class ReportController extends Controller
         $registrationTrend = $memberRegistrationByMonth->map(function ($item) {
             $date = Carbon::createFromFormat('Y-m', $item->month);
             $previousMonth = $date->copy()->subMonth();
-            $previousCount = Member::whereMonth('created_at', $previousMonth->month)
+            $previousCount = User::whereNotNull('plan_name')->whereMonth('created_at', $previousMonth->month)
                 ->whereYear('created_at', $previousMonth->year)
                 ->count();
             
@@ -296,7 +295,7 @@ class ReportController extends Controller
                 'month_name' => $date->format('F'),
                 'year' => $date->year,
                 'new_members' => $item->total_members,
-                'total_members' => Member::where('created_at', '<=', $date->endOfMonth())->count(),
+                'total_members' => User::whereNotNull('plan_name')->where('created_at', '<=', $date->endOfMonth())->count(),
                 'growth_rate' => $growthRate,
             ];
         });
@@ -420,7 +419,7 @@ class ReportController extends Controller
      */
     private function getMembersExportData($dateFrom, $dateTo)
     {
-        return Member::with('agent')
+        return User::whereNotNull('plan_name')->with('referrer')
             ->whereBetween('created_at', [$dateFrom, $dateTo])
             ->get()
             ->map(function ($member) {

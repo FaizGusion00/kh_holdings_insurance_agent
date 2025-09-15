@@ -10,8 +10,6 @@ use App\Models\MedicalInsurancePlan;
 use App\Models\MedicalInsurancePolicy;
 use App\Models\PaymentTransaction;
 use App\Models\GatewayPayment;
-use App\Models\Client;
-use App\Models\Member;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\Log;
@@ -183,9 +181,9 @@ class MedicalInsurancePaymentController extends Controller
                         'status' => $payment['status'] ?? null,
                     ]);
                     $this->createPolicyFromRegistration($registration);
-                    // Create/update clients per registered customers and record payments per client
-                    $clients = $this->syncClientsFromRegistration($registration);
-                    $this->recordGatewayPayment($registration, $payment, $clients);
+                    // Create/update users per registered customers and record payments per user
+                    $users = $this->syncClientsFromRegistration($registration);
+                    $this->recordGatewayPayment($registration, $payment, $users);
                     $registration->status = 'active';
                     $registration->save();
 
@@ -608,7 +606,7 @@ class MedicalInsurancePaymentController extends Controller
     /**
      * Store raw gateway payment tied to registration/agent
      */
-    private function recordGatewayPayment($registration, array $payment, array $clients = []): void
+    private function recordGatewayPayment($registration, array $payment, array $users = []): void
     {
         try {
             // Store one aggregate payment row
@@ -631,23 +629,23 @@ class MedicalInsurancePaymentController extends Controller
                 'completed_at' => now(),
             ]);
 
-            // Store per-client payment rows
-            foreach ($clients as $client) {
+            // Store per-user payment rows
+            foreach ($users as $user) {
                 GatewayPayment::create([
                     'registration_id' => $registration->id,
                     'agent_id' => $registration->agent_id,
-                    'client_id' => $client->id,
+                    'client_id' => $user->id, // Now references user id
                     'gateway' => 'curlec',
                     'payment_id' => $payment['id'] ?? null,
                     'order_id' => $payment['order_id'] ?? null,
-                    'amount' => $client->plan_name ? ((\App\Models\MedicalInsurancePlan::where('name', $client->plan_name)->first()?->getTotalPriceByFrequency($client->payment_mode) ?? 0) + $this->getCardFeeByType($client->medical_card_type)) : 0,
+                    'amount' => $user->plan_name ? ((\App\Models\MedicalInsurancePlan::where('name', $user->plan_name)->first()?->getTotalPriceByFrequency($user->payment_mode) ?? 0) + $this->getCardFeeByType($user->medical_card_type)) : 0,
                     'currency' => 'MYR',
                     'status' => $payment['status'] ?? 'completed',
-                    'description' => "Payment for {$client->full_name} ({$client->customer_type})",
+                    'description' => "Payment for {$user->name} ({$user->customer_type})",
                     'metadata' => [
-                        'plan_name' => $client->plan_name,
-                        'payment_mode' => $client->payment_mode,
-                        'medical_card_type' => $client->medical_card_type,
+                        'plan_name' => $user->plan_name,
+                        'payment_mode' => $user->payment_mode,
+                        'medical_card_type' => $user->medical_card_type,
                     ],
                     'gateway_response' => $payment,
                     'completed_at' => now(),
@@ -661,154 +659,133 @@ class MedicalInsurancePaymentController extends Controller
     }
 
     /**
-     * Ensure Client rows exist for each customer in the registration and return them
-     * @return Client[]
+     * Ensure User records exist for each customer in the registration (consolidated approach)
+     * @return User[]
      */
     private function syncClientsFromRegistration($registration): array
     {
-        $clients = [];
+        $users = [];
         foreach ($registration->getAllCustomers() as $customer) {
-            $client = Client::firstOrCreate(
-                [
-                    'agent_id' => $registration->agent_id,
-                    'registration_id' => $registration->id,
-                    'customer_type' => $customer['type'],
-                    'nric' => $customer['nric'],
-                ],
-                [
-                    'full_name' => $customer['full_name'],
-                    'phone_number' => $customer['phone_number'],
-                    'email' => $customer['email'] ?? null,
-                    'plan_name' => $customer['plan_type'],
-                    'payment_mode' => $customer['payment_mode'],
-                    'medical_card_type' => $customer['medical_card_type'],
-                    'status' => 'active',
-                    'policy_id' => null,
-                ]
-            );
-
-            // Ensure member exists for this client under the agent
             try {
-                $member = Member::firstOrCreate(
-                    [
-                        'user_id' => $registration->agent_id,
-                        'nric' => $customer['nric'],
-                    ],
-                    [
-                        'name' => $customer['full_name'],
-                        'phone' => $customer['phone_number'],
-                        'email' => $customer['email'] ?? null,
-                        'race' => $customer['race'] ?? '',
-                        'status' => 'active',
-                        'registration_date' => now(),
-                        'emergency_contact_name' => $registration->emergency_contact_name,
-                        'emergency_contact_phone' => $registration->emergency_contact_phone,
-                        'emergency_contact_relationship' => $registration->emergency_contact_relationship,
-                    ]
-                );
-            } catch (\Throwable $e) {
-                \Log::warning('Failed to sync member from client: ' . $e->getMessage(), [
-                    'registration_id' => $registration->id,
-                    'nric' => $customer['nric'] ?? null,
-                ]);
-            }
-            $clients[] = $client;
+                // Get the referrer agent who registered this client
+                $referrerAgent = $registration->agent;
+                
+                // Calculate MLM level for the new user
+                $mlmLevel = 1;
+                if ($referrerAgent && $referrerAgent->referral) {
+                    $mlmLevel = ((int) $referrerAgent->referral->referral_level) + 1;
+                } elseif ($referrerAgent) {
+                    $mlmLevel = 2;
+                }
 
-            // Ensure a User (agent) exists for this client so they can log in and have referrer linkage
-            try {
-                $agentCode = $registration->agent?->agent_code ?: $registration->agent_code;
-                $referrer = $agentCode ? \App\Models\User::where('agent_code', $agentCode)->first() : null;
+                // Create or update the User record with all consolidated data
                 $user = \App\Models\User::firstOrCreate(
                     [
                         'nric' => $customer['nric'],
                     ],
                     [
+                        // Basic user info
                         'name' => $customer['full_name'],
                         'email' => $customer['email'] ?? (strtolower(str_replace(' ', '', $customer['full_name'])) . '@wekongsi.local'),
                         'password' => bcrypt('Temp1234!'),
                         'phone_number' => $customer['phone_number'] ?? '',
                         'status' => 'active',
+                        
+                        // Agent info (auto-generated)
                         'agent_code' => \App\Models\User::generateAgentCode(),
                         'agent_number' => \App\Models\User::generateAgentNumber(),
-                        'referrer_code' => $referrer?->agent_code,
+                        'mlm_activation_date' => now(),
+                        
+                        // Network/referral info
+                        'referrer_code' => $referrerAgent?->agent_code,
+                        'referrer_id' => $referrerAgent?->id,
+                        'mlm_level' => $mlmLevel,
+                        
+                        // Plan/policy info (consolidated from client data)
+                        'plan_name' => $customer['plan_type'],
+                        'payment_mode' => $customer['payment_mode'],
+                        'medical_card_type' => $customer['medical_card_type'],
+                        'customer_type' => $customer['type'],
+                        'registration_id' => $registration->id,
+                        
+                        // Customer demographics
+                        'race' => $customer['race'] ?? '',
+                        'height_cm' => $customer['height_cm'] ?? null,
+                        'weight_kg' => $customer['weight_kg'] ?? null,
+                        
+                        // Emergency contact
+                        'emergency_contact_name' => $registration->emergency_contact_name,
+                        'emergency_contact_phone' => $registration->emergency_contact_phone,
+                        'emergency_contact_relationship' => $registration->emergency_contact_relationship,
+                        
+                        // Medical history
+                        'medical_consultation_2_years' => $registration->medical_consultation_2_years ?? false,
+                        'serious_illness_history' => $registration->serious_illness_history ?? false,
+                        'insurance_rejection_history' => $registration->insurance_rejection_history ?? false,
+                        'serious_injury_history' => $registration->serious_injury_history ?? false,
+                        
+                        // Timestamps and balances
+                        'registration_date' => now(),
+                        'balance' => 0,
+                        'wallet_balance' => 0,
                     ]
                 );
 
-                // Auto-promote purchaser to agent: ensure activation markers are set
-                $needsSave = false;
+                // Update existing user if needed to ensure they have agent status and plan info
+                $updateData = [];
                 if (!$user->agent_code) {
-                    $user->agent_code = \App\Models\User::generateAgentCode();
-                    $needsSave = true;
+                    $updateData['agent_code'] = \App\Models\User::generateAgentCode();
                 }
                 if (!$user->agent_number) {
-                    $user->agent_number = \App\Models\User::generateAgentNumber();
-                    $needsSave = true;
+                    $updateData['agent_number'] = \App\Models\User::generateAgentNumber();
                 }
                 if (empty($user->status) || $user->status !== 'active') {
-                    $user->status = 'active';
-                    $needsSave = true;
+                    $updateData['status'] = 'active';
                 }
                 if (!$user->mlm_activation_date) {
-                    $user->mlm_activation_date = now();
-                    $needsSave = true;
+                    $updateData['mlm_activation_date'] = now();
                 }
-                if ($needsSave) {
-                    $user->save();
+                if (!$user->plan_name && $customer['plan_type']) {
+                    $updateData['plan_name'] = $customer['plan_type'];
+                    $updateData['payment_mode'] = $customer['payment_mode'];
+                    $updateData['medical_card_type'] = $customer['medical_card_type'];
+                    $updateData['customer_type'] = $customer['type'];
+                    $updateData['registration_id'] = $registration->id;
+                }
+                if ($updateData) {
+                    $user->update($updateData);
+                    $user->refresh();
                 }
 
-                // Create Referral row for the new user if not exists
-                if ($user) {
+                // Create Referral record for network tracking
+                if ($user->agent_code) {
                     \App\Models\Referral::firstOrCreate(
                         [ 'user_id' => $user->id ],
                         [
                             'agent_code' => $user->agent_code,
-                            'referrer_code' => $referrer?->agent_code,
-                            'referral_level' => ($referrer && $referrer->referral) ? ($referrer->referral->referral_level + 1) : 1,
-                            'upline_chain' => ($referrer && $referrer->referral) ? array_merge([$referrer->agent_code], (array) $referrer->referral->upline_chain) : [],
+                            'referrer_code' => $referrerAgent?->agent_code,
+                            'referral_level' => $mlmLevel,
+                            'upline_chain' => ($referrerAgent && $referrerAgent->referral) 
+                                ? array_merge([$referrerAgent->agent_code], (array) $referrerAgent->referral->upline_chain) 
+                                : [],
                             'status' => 'active',
                             'activation_date' => now(),
                         ]
                     );
                 }
 
-                // Mark the corresponding network member as an agent and stamp their agent code for hierarchy visibility
-                try {
-                    $networkMember = Member::where('user_id', $registration->agent_id)
-                        ->where('nric', $customer['nric'])
-                        ->first();
-                    if ($networkMember) {
-                        $networkMember->is_agent = true;
-                        $networkMember->agent_code = $user->agent_code;
-                        // Compute MLM level: referrer level + 1, fallback to 2 when referrer exists
-                        $mlmLevel = 1;
-                        if ($referrer && $referrer->referral) {
-                            $mlmLevel = ((int) $referrer->referral->referral_level) + 1;
-                        } elseif ($referrer) {
-                            $mlmLevel = 2;
-                        }
-                        $networkMember->mlm_level = $mlmLevel;
-                        $networkMember->referrer_agent_id = $referrer?->id;
-                        $networkMember->referrer_agent_code = $referrer?->agent_code;
-                        // Set generic referrer fields for compatibility
-                        $networkMember->referrer_id = $referrer?->id;
-                        $networkMember->referrer_code = $referrer?->agent_code;
-                        $networkMember->save();
-                    }
-                } catch (\Throwable $e) {
-                    \Log::warning('Failed to tag member as agent after purchase: ' . $e->getMessage(), [
-                        'registration_id' => $registration->id,
-                        'nric' => $customer['nric'] ?? null,
-                    ]);
-                }
+                $users[] = $user;
 
             } catch (\Throwable $e) {
-                \Log::warning('Failed to ensure user/agent for client: ' . $e->getMessage(), [
+                \Log::warning('Failed to create/update user for client: ' . $e->getMessage(), [
                     'registration_id' => $registration->id,
                     'nric' => $customer['nric'] ?? null,
+                    'customer_type' => $customer['type'] ?? null,
                 ]);
             }
         }
-        return $clients;
+
+        return $users;
     }
 
     /**

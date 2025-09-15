@@ -24,6 +24,7 @@ class User extends Authenticatable
         'agent_number',
         'agent_code',
         'referrer_code',
+        'referrer_id',
         'phone_number',
         'nric',
         'address',
@@ -39,6 +40,33 @@ class User extends Authenticatable
         'status',
         'phone_verified_at',
         'mlm_activation_date',
+        // Plan and Policy Information (consolidated from clients)
+        'plan_name',
+        'payment_mode',
+        'medical_card_type',
+        'customer_type',
+        'registration_id',
+        // Demographics (consolidated from members)
+        'race',
+        'date_of_birth',
+        'gender',
+        'occupation',
+        'height_cm',
+        'weight_kg',
+        // Emergency Contact
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_relationship',
+        // Medical History
+        'medical_consultation_2_years',
+        'serious_illness_history',
+        'insurance_rejection_history',
+        'serious_injury_history',
+        // Registration and Financial Info
+        'registration_date',
+        'relationship_with_agent',
+        'balance',
+        'wallet_balance',
     ];
 
     /**
@@ -65,15 +93,15 @@ class User extends Authenticatable
             'password' => 'hashed',
             'total_commission_earned' => 'decimal:2',
             'monthly_commission_target' => 'decimal:2',
+            'date_of_birth' => 'date',
+            'registration_date' => 'date',
+            'medical_consultation_2_years' => 'boolean',
+            'serious_illness_history' => 'boolean',
+            'insurance_rejection_history' => 'boolean',
+            'serious_injury_history' => 'boolean',
+            'balance' => 'decimal:2',
+            'wallet_balance' => 'decimal:2',
         ];
-    }
-
-    /**
-     * Get the members registered by this agent.
-     */
-    public function members()
-    {
-        return $this->hasMany(Member::class);
     }
 
     /**
@@ -133,6 +161,30 @@ class User extends Authenticatable
     }
 
     /**
+     * Get medical insurance registration associated with this user.
+     */
+    public function medicalInsuranceRegistration()
+    {
+        return $this->belongsTo(MedicalInsuranceRegistration::class, 'registration_id');
+    }
+
+    /**
+     * Get payment transactions for this user.
+     */
+    public function paymentTransactions()
+    {
+        return $this->hasMany(PaymentTransaction::class);
+    }
+
+    /**
+     * Get users registered by this agent (for agent dashboard).
+     */
+    public function registeredUsers()
+    {
+        return $this->hasMany(User::class, 'referrer_id');
+    }
+
+    /**
      * Generate a unique agent code.
      */
     public static function generateAgentCode(): string
@@ -165,10 +217,68 @@ class User extends Authenticatable
      */
     public static function generateAgentNumber(): string
     {
-        do {
-            $number = str_pad(mt_rand(10000, 999999), 6, '0', STR_PAD_LEFT);
-        } while (self::where('agent_number', $number)->exists());
+        // Determine the next sequential agent number
+        $last = self::whereNotNull('agent_number')
+            ->where('agent_number', 'REGEXP', '^[0-9]{6}$')
+            ->select('agent_number')
+            ->orderByDesc('agent_number')
+            ->first();
 
-        return $number;
+        $nextNumber = 1;
+        if ($last && is_numeric($last->agent_number)) {
+            $nextNumber = intval($last->agent_number) + 1;
+        }
+
+        $agentNumber = str_pad((string)$nextNumber, 6, '0', STR_PAD_LEFT);
+
+        // Ensure uniqueness
+        while (self::where('agent_number', $agentNumber)->exists()) {
+            $nextNumber++;
+            $agentNumber = str_pad((string)$nextNumber, 6, '0', STR_PAD_LEFT);
+        }
+
+        return $agentNumber;
+    }
+
+    /**
+     * Check if user is an active agent.
+     */
+    public function isActiveAgent(): bool
+    {
+        return $this->status === 'active' && !empty($this->agent_code) && !empty($this->mlm_activation_date);
+    }
+
+    /**
+     * Get full name for display.
+     */
+    public function getFullNameAttribute(): string
+    {
+        return $this->name;
+    }
+
+    /**
+     * Get display status.
+     */
+    public function getStatusDisplayAttribute(): string
+    {
+        return ucfirst($this->status);
+    }
+
+    /**
+     * Scope to get only active agents.
+     */
+    public function scopeActiveAgents($query)
+    {
+        return $query->where('status', 'active')
+                    ->whereNotNull('agent_code')
+                    ->whereNotNull('mlm_activation_date');
+    }
+
+    /**
+     * Scope to get only users with plans (customers).
+     */
+    public function scopeWithPlans($query)
+    {
+        return $query->whereNotNull('plan_name');
     }
 }

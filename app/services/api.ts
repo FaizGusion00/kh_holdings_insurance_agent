@@ -218,6 +218,11 @@ class ApiService {
       'Accept': 'application/json',
     };
 
+    // Ensure latest token from storage in case of new tab/reload
+    if (!this.token && typeof window !== 'undefined') {
+      this.token = localStorage.getItem('auth_token');
+    }
+
     if (this.token) {
       headers['Authorization'] = `Bearer ${this.token}`;
     }
@@ -334,7 +339,15 @@ class ApiService {
   }
 
   isAuthenticated(): boolean {
-    return !!this.token;
+    if (this.token) return true;
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('auth_token');
+      if (stored) {
+        this.token = stored;
+        return true;
+      }
+    }
+    return false;
   }
 
   // Authentication

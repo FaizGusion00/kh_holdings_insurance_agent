@@ -10,7 +10,7 @@ class MemberPolicy extends Model
     use HasFactory;
 
     protected $fillable = [
-        'member_id',
+        'user_id',
         'product_id',
         'policy_number',
         'start_date',
@@ -34,11 +34,11 @@ class MemberPolicy extends Model
     ];
 
     /**
-     * Get the member who owns this policy.
+     * Get the user who owns this policy.
      */
-    public function member()
+    public function user()
     {
-        return $this->belongsTo(Member::class);
+        return $this->belongsTo(User::class);
     }
 
     /**

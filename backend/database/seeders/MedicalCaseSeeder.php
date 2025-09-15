@@ -5,7 +5,6 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use App\Models\MedicalCase;
 use App\Models\User;
-use App\Models\Member;
 use Carbon\Carbon;
 
 class MedicalCaseSeeder extends Seeder
@@ -20,7 +19,7 @@ class MedicalCaseSeeder extends Seeder
             return;
         }
 
-        $members = Member::where('user_id', $user->id)->pluck('id')->all();
+        $members = User::where('referrer_id', $user->id)->whereNotNull('plan_name')->pluck('id')->all();
         if (empty($members)) {
             return;
         }
@@ -33,8 +32,7 @@ class MedicalCaseSeeder extends Seeder
             $approvedAt = $monthDate->copy()->addDays(rand(0, 10));
 
             $rows[] = [
-                'user_id' => $user->id,
-                'member_id' => $members[array_rand($members)],
+                'user_id' => $members[array_rand($members)],
                 'case_type' => 'hospital',
                 'status' => 'approved',
                 'approved_at' => $approvedAt,
@@ -44,8 +42,7 @@ class MedicalCaseSeeder extends Seeder
             ];
 
             $rows[] = [
-                'user_id' => $user->id,
-                'member_id' => $members[array_rand($members)],
+                'user_id' => $members[array_rand($members)],
                 'case_type' => 'clinic',
                 'status' => 'approved',
                 'approved_at' => $approvedAt->copy()->addDays(2),
