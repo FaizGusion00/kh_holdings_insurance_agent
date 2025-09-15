@@ -114,6 +114,7 @@
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member/Agent</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Network Level</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Referrer</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Current Plan</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Wallet</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Joined</th>
@@ -185,6 +186,33 @@
                                 @endif
                             </td>
                             <td class="px-6 py-4 whitespace-nowrap">
+                                @php
+                                    $currentPlan = $member->currentActivePlan();
+                                @endphp
+                                @if($currentPlan)
+                                    <div class="flex flex-col">
+                                        <span class="text-sm font-medium text-gray-900">{{ $currentPlan->plan_name ?? $currentPlan->product->name ?? 'Unknown Plan' }}</span>
+                                        <span class="text-xs text-gray-500">
+                                            @if($currentPlan->end_date)
+                                                Expires: {{ \Carbon\Carbon::parse($currentPlan->end_date)->format('M d, Y') }}
+                                            @else
+                                                Active
+                                            @endif
+                                        </span>
+                                        @if($currentPlan->end_date && \Carbon\Carbon::parse($currentPlan->end_date)->isPast())
+                                            <span class="text-xs text-red-600 font-medium">Expired</span>
+                                        @elseif($currentPlan->end_date && \Carbon\Carbon::parse($currentPlan->end_date)->diffInDays(now()) <= 30)
+                                            <span class="text-xs text-yellow-600 font-medium">Expires Soon</span>
+                                        @endif
+                                    </div>
+                                @else
+                                    <div class="flex flex-col">
+                                        <span class="text-sm text-gray-500">No Active Plan</span>
+                                        <span class="text-xs text-gray-400">Not enrolled</span>
+                                    </div>
+                                @endif
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap">
                                 @if($member->is_agent)
                                     <div class="flex flex-col">
                                         <span class="text-blue-600 text-sm font-medium">RM {{ number_format($member->wallet_balance ?? 0, 2) }}</span>
@@ -237,7 +265,7 @@
                         </tr>
                         @empty
                         <tr>
-                            <td colspan="7" class="px-6 py-4 text-center text-gray-500">
+                            <td colspan="8" class="px-6 py-4 text-center text-gray-500">
                                 No members found.
                             </td>
                         </tr>

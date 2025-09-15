@@ -18,6 +18,7 @@ import {
 import { PageTransition, StaggeredContainer, StaggeredItem, FadeIn } from "../(ui)/components/PageTransition";
 import { Modal } from "../(ui)/components/Modal";
 import { LoadingSpinner } from "../(ui)/components/LoadingSpinner";
+import { NotificationBell } from "../(ui)/components/NotificationBell";
 // import { AddMemberForm } from "../(ui)/components/AddMemberForm"; // Commented out for future use
 import { MemberDetails, MemberProfile } from "../(ui)/components/MemberDetails";
 import { useState, useEffect } from "react";
@@ -307,12 +308,10 @@ export default function DashboardPage() {
 		<PageTransition>
 			<div className="min-h-screen bg-gray-50 py-6 px-4 sm:px-6 lg:px-8 flex items-center justify-center">
 				<div className="w-full max-w-5xl xl:max-w-6xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
-					{/* Profile Badge */}
+					{/* Notification Bell */}
 					<FadeIn delay={0.3}>
 						<div className="absolute right-2 sm:right-3 md:right-6 top-2 sm:top-3 md:top-6">
-							<div className="w-8 h-8 sm:w-10 sm:h-10 rounded-full bg-gradient-to-br from-rose-400 to-rose-500 text-white grid place-content-center font-bold text-sm sm:text-base shadow-lg">
-								N
-							</div>
+							<NotificationBell />
 						</div>
 					</FadeIn>
 					

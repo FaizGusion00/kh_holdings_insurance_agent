@@ -11,6 +11,7 @@ class PaymentTransaction extends Model
 
     protected $fillable = [
         'member_id',
+        'user_id',
         'policy_id',
         'amount',
         'payment_type',
@@ -40,6 +41,14 @@ class PaymentTransaction extends Model
     public function member()
     {
         return $this->belongsTo(Member::class);
+    }
+
+    /**
+     * Get the user (agent) who made this payment.
+     */
+    public function user()
+    {
+        return $this->belongsTo(User::class);
     }
 
     /**

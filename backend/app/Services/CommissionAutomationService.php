@@ -11,16 +11,19 @@ use App\Models\MedicalInsuranceRegistration;
 use App\Models\AgentWallet;
 use App\Models\WalletTransaction;
 use App\Services\WalletService;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class CommissionAutomationService
 {
     protected $walletService;
+    protected $notificationService;
 
-    public function __construct(WalletService $walletService)
+    public function __construct(WalletService $walletService, NotificationService $notificationService)
     {
         $this->walletService = $walletService;
+        $this->notificationService = $notificationService;
     }
 
     /**
@@ -67,10 +70,13 @@ class CommissionAutomationService
                     'payment_frequency' => $paymentFrequency
                 ]);
 
-                // Get the agent's network levels (up to 5 levels)
-                $networkLevels = $this->getAgentNetworkLevels($registration->agent_id);
+                // Determine payer's user (the customer who becomes an agent) and compute uplines
+                $payerUser = User::where('nric', $customer['nric'] ?? null)->first();
+                $networkLevels = $payerUser
+                    ? $this->getUplinesFromPayer($payerUser)
+                    : $this->getAgentNetworkLevels($registration->agent_id);
                 
-                // Process commission for each network level
+                // Process commission for each network level (tier1 = immediate upline)
                 foreach ($networkLevels as $level => $agentId) {
                     $commission = $this->createCommissionForAgent(
                         $agentId,
@@ -91,6 +97,28 @@ class CommissionAutomationService
                             'commission_amount' => $commission->commission_amount,
                             'plan_name' => $planName
                         ]);
+                    }
+                }
+
+                // Additional commission for Medical Card add-on (fixed per-tier amounts)
+                if (!empty($customer['medical_card_type'])) {
+                    foreach ($networkLevels as $level => $agentId) {
+                        $fixed = $this->getMedicalCardFixedAmountByTier($level);
+                        if ($fixed > 0) {
+                            $mc = $this->createFixedCommission(
+                                $agentId,
+                                'Medical Card',
+                                $paymentFrequency,
+                                $level,
+                                $registration->id,
+                                $customer['type'] . '_' . $customer['nric'] . '_card',
+                                $fixed
+                            );
+                            if ($mc) {
+                                $totalCommissions += $mc->commission_amount;
+                                $processedCount++;
+                            }
+                        }
                     }
                 }
             }
@@ -185,21 +213,42 @@ class CommissionAutomationService
         $currentAgentId = $agentId;
         $level = 1;
 
+        // Level 1 is the agent themselves
         while ($currentAgentId && $level <= 5) {
             $networkLevels[$level] = $currentAgentId;
-            
-            // Get the referrer (parent agent)
-            $member = Member::where('user_id', $currentAgentId)->first();
-            if ($member && $member->referrer_id) {
-                $currentAgentId = $member->referrer_id;
+
+            $referral = \App\Models\Referral::where('user_id', $currentAgentId)->first();
+            if ($referral && $referral->referrer_code) {
+                $upline = User::where('agent_code', $referral->referrer_code)->first();
+                $currentAgentId = $upline?->id;
             } else {
                 break;
             }
-            
+
             $level++;
         }
 
         return $networkLevels;
+    }
+
+    /**
+     * Get uplines from a payer (newly created agent). Tier1 is immediate upline, etc.
+     */
+    protected function getUplinesFromPayer(User $payer): array
+    {
+        $levels = [];
+        $referral = \App\Models\Referral::where('user_id', $payer->id)->first();
+        $currentCode = $referral?->referrer_code;
+        $tier = 1;
+        while ($currentCode && $tier <= 5) {
+            $upline = User::where('agent_code', $currentCode)->first();
+            if (!$upline) { break; }
+            $levels[$tier] = $upline->id;
+            $uplineRef = \App\Models\Referral::where('user_id', $upline->id)->first();
+            $currentCode = $uplineRef?->referrer_code;
+            $tier++;
+        }
+        return $levels;
     }
 
     /**
@@ -215,13 +264,50 @@ class CommissionAutomationService
                 ->where('tier_level', $tierLevel)
                 ->first();
 
+            // Determine base amount from plan & frequency (premium portion)
+            $planModel = \App\Models\MedicalInsurancePlan::where('name', $planName)->first();
+            $baseAmount = $planModel ? $planModel->getPriceByFrequency($paymentFrequency) : 0;
+
             if (!$rule) {
-                Log::warning("No commission rule found for plan: {$planName}, frequency: {$paymentFrequency}, tier: {$tierLevel}");
-                return null;
+                // Fallback defaults when rules not set in DB
+                $defaultPercentages = [1 => 10.0, 2 => 5.0, 3 => 3.0, 4 => 2.0, 5 => 1.0];
+                $percentage = $defaultPercentages[$tierLevel] ?? 0.0;
+                $computedAmount = ($baseAmount * $percentage) / 100.0;
+                if ($computedAmount <= 0) {
+                    Log::warning("No commission rule and computed amount is zero for plan: {$planName}, freq: {$paymentFrequency}, tier: {$tierLevel}");
+                    return null;
+                }
+
+                $commission = Commission::create([
+                    'user_id' => $agentId,
+                    'product_id' => null,
+                    'policy_id' => $sourceId,
+                    'tier_level' => $tierLevel,
+                    'commission_type' => $this->getCommissionType($tierLevel),
+                    'base_amount' => $baseAmount,
+                    'commission_percentage' => $percentage,
+                    'commission_amount' => $computedAmount,
+                    'payment_frequency' => $paymentFrequency,
+                    'month' => now()->month,
+                    'year' => now()->year,
+                    'status' => 'pending',
+                    'notes' => "Auto-generated commission (default rule) for {$planName} - Tier {$tierLevel}",
+                ]);
+
+                $this->walletService->processCommissionPayment($commission->id);
+                $commission->update(['status' => 'paid']);
+                $this->notificationService->createCommissionNotification(
+                    $agentId,
+                    $computedAmount,
+                    "Commission earned from {$planName} - Tier {$tierLevel}",
+                    "/profile?tab=referrer&subtab=commission"
+                );
+
+                return $commission;
             }
 
             // Calculate commission amount
-            $commissionAmount = $rule->calculateCommission();
+            $commissionAmount = $rule->calculateCommission($baseAmount);
             
             if ($commissionAmount <= 0) {
                 Log::warning("Commission amount is zero or negative for agent {$agentId}, tier {$tierLevel}");
@@ -235,7 +321,7 @@ class CommissionAutomationService
                 'policy_id' => $sourceId,
                 'tier_level' => $tierLevel,
                 'commission_type' => $this->getCommissionType($tierLevel),
-                'base_amount' => $rule->base_amount,
+                'base_amount' => $baseAmount,
                 'commission_percentage' => $rule->commission_percentage,
                 'commission_amount' => $commissionAmount,
                 'payment_frequency' => $paymentFrequency,
@@ -250,6 +336,14 @@ class CommissionAutomationService
             
             // Update commission status to paid
             $commission->update(['status' => 'paid']);
+
+            // Create notification for commission earned
+            $this->notificationService->createCommissionNotification(
+                $agentId,
+                $commissionAmount,
+                "Commission earned from {$planName} - Tier {$tierLevel}",
+                "/profile?tab=referrer&subtab=commission"
+            );
 
             return $commission;
 
@@ -283,13 +377,16 @@ class CommissionAutomationService
         
         // Map plan types to commission rule plan names
         $planMapping = [
+            // allow both canonical names and friendly keys
+            'Senior Care Plan Gold 270' => 'Senior Care Plan Gold 270',
+            'Senior Care Plan Diamond 370' => 'Senior Care Plan Diamond 370',
             'senior_care_gold' => 'Senior Care Plan Gold 270',
             'senior_care_diamond' => 'Senior Care Plan Diamond 370',
             'medical_card' => 'Medical Card',
             'medplan_coop' => 'MediPlan Coop',
         ];
         
-        return $planMapping[$planType] ?? 'Senior Care Plan Gold 270';
+        return $planMapping[$planType] ?? $planType;
     }
 
     /**
@@ -304,10 +401,62 @@ class CommissionAutomationService
             'monthly' => 'monthly',
             'quarterly' => 'quarterly',
             'half_yearly' => 'semi_annually',
+            'semi_annually' => 'semi_annually',
             'yearly' => 'annually',
+            'annually' => 'annually',
         ];
         
         return $frequencyMapping[$paymentMode] ?? 'monthly';
+    }
+
+    /**
+     * Fixed Medical Card amounts by tier (RM) based on provided guide.
+     * T1=10, T2=2, T3=2, T4=1, T5=0.75
+     */
+    protected function getMedicalCardFixedAmountByTier(int $tier): float
+    {
+        return match($tier) {
+            1 => 10.0,
+            2 => 2.0,
+            3 => 2.0,
+            4 => 1.0,
+            5 => 0.75,
+            default => 0.0,
+        };
+    }
+
+    /**
+     * Create a fixed-amount commission record and pay it out immediately.
+     */
+    protected function createFixedCommission($agentId, string $planName, string $paymentFrequency, int $tierLevel, $sourceId, $customerId, float $amount)
+    {
+        if ($amount <= 0) { return null; }
+        $commission = Commission::create([
+            'user_id' => $agentId,
+            'product_id' => null,
+            'policy_id' => $sourceId,
+            'tier_level' => $tierLevel,
+            'commission_type' => $this->getCommissionType($tierLevel),
+            'base_amount' => 0,
+            'commission_percentage' => 0,
+            'commission_amount' => $amount,
+            'payment_frequency' => $paymentFrequency,
+            'month' => now()->month,
+            'year' => now()->year,
+            'status' => 'pending',
+            'notes' => "Fixed commission for {$planName} - Tier {$tierLevel}",
+        ]);
+
+        $this->walletService->processCommissionPayment($commission->id);
+        $commission->update(['status' => 'paid']);
+        $this->notificationService->createCommissionNotification(
+            $agentId,
+            $amount,
+            "Commission earned (fixed) from {$planName} - Tier {$tierLevel}",
+            "/profile?tab=referrer&subtab=commission"
+        );
+
+        return $commission;
     }
 
     /**
@@ -366,6 +515,84 @@ class CommissionAutomationService
                 'amount' => $amount,
                 'formatted_month' => $date->format('M Y'),
             ];
+        }
+
+        return $summary;
+    }
+
+    /**
+     * Process renewal commission for a policy
+     */
+    public function processRenewalCommission($policyId, $policyType = 'member')
+    {
+        try {
+            if ($policyType === 'member') {
+                return $this->processPolicyCommission($policyId);
+            } else {
+                // For medical insurance, we need the registration ID
+                $policy = MedicalInsurancePolicy::find($policyId);
+                if ($policy) {
+                    return $this->processMedicalInsuranceCommission($policy->registration_id);
+                }
+            }
+
+            return [
+                'success' => false,
+                'error' => 'Invalid policy type or policy not found'
+            ];
+
+        } catch (\Exception $e) {
+            Log::error("Failed to process renewal commission for policy {$policyId}: " . $e->getMessage());
+            
+            return [
+                'success' => false,
+                'error' => $e->getMessage()
+            ];
+        }
+    }
+
+    /**
+     * Get policy expiration summary for an agent
+     */
+    public function getPolicyExpirationSummary($agentId)
+    {
+        $summary = [
+            'expiring_soon' => 0,
+            'expired' => 0,
+            'total_active' => 0,
+            'renewal_opportunities' => []
+        ];
+
+        // Get member policies
+        $memberPolicies = MemberPolicy::whereHas('member', function($query) use ($agentId) {
+            $query->where('user_id', $agentId);
+        })->get();
+
+        // Get medical insurance policies
+        $medicalPolicies = MedicalInsurancePolicy::where('agent_id', $agentId)->get();
+
+        $allPolicies = $memberPolicies->concat($medicalPolicies);
+
+        foreach ($allPolicies as $policy) {
+            if ($policy->status === 'active') {
+                $summary['total_active']++;
+                
+                $daysUntilExpiration = now()->diffInDays($policy->end_date, false);
+                
+                if ($daysUntilExpiration <= 30 && $daysUntilExpiration > 0) {
+                    $summary['expiring_soon']++;
+                    $summary['renewal_opportunities'][] = [
+                        'policy_id' => $policy->id,
+                        'policy_number' => $policy->policy_number,
+                        'customer_name' => $policy->customer_name ?? $policy->member->user->name ?? 'Unknown',
+                        'expiration_date' => $policy->end_date->format('Y-m-d'),
+                        'days_until_expiration' => $daysUntilExpiration,
+                        'type' => $policy instanceof MedicalInsurancePolicy ? 'medical' : 'member'
+                    ];
+                }
+            } elseif ($policy->status === 'expired') {
+                $summary['expired']++;
+            }
         }
 
         return $summary;

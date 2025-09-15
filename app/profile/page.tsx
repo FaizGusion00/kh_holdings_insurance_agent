@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
 import { apiService, PaymentTransaction, PaymentMandate, DashboardStats, RecentActivity } from "../services/api";
@@ -49,6 +49,7 @@ import {
     ArrowLeft,
     Shield,
     Phone,
+    Mail,
     Plus,
     XCircle,
     Wallet,
@@ -56,11 +57,14 @@ import {
     Users,
     Activity,
     Clock,
-    BarChart3
+    BarChart3,
+    CreditCard,
+    Heart
 } from "lucide-react";
 import { PageTransition, FadeIn, StaggeredContainer, StaggeredItem } from "../(ui)/components/PageTransition";
 import { motion, AnimatePresence } from "framer-motion";
 import MedicalInsuranceRegistrationForm from "../(ui)/components/MedicalInsuranceRegistrationForm";
+import { Modal } from "../(ui)/components/Modal";
 
 type TabType = 'overview' | 'profile' | 'policy-view' | 'payment-history' | 'medical-insurance' | 'referrer';
 type ReferrerSubTab = 'referral' | 'bank-info' | 'commission';
@@ -89,6 +93,14 @@ export default function ProfilePage() {
     const [showMedicalInsuranceModal, setShowMedicalInsuranceModal] = useState(false);
     const [showPolicyModal, setShowPolicyModal] = useState(false);
     const [selectedPolicy, setSelectedPolicy] = useState<any>(null);
+    const [showViewUserModal, setShowViewUserModal] = useState(false);
+    const [selectedUser, setSelectedUser] = useState<any>(null);
+    const [selectedUserDownlines, setSelectedUserDownlines] = useState<any[]>([]);
+    const [selectedUserCommissionSummary, setSelectedUserCommissionSummary] = useState<any>(null);
+    const [selectedUserLevelFilter, setSelectedUserLevelFilter] = useState<number | undefined>(undefined);
+    const [selectedUserDownlinesPage, setSelectedUserDownlinesPage] = useState<number>(1);
+    const [selectedUserByLevelCounts, setSelectedUserByLevelCounts] = useState<Record<string, number> | null>(null);
+    const [isSelectedUserLoading, setIsSelectedUserLoading] = useState<boolean>(false);
     
     // Medical Insurance search and pagination states
     const [searchQuery, setSearchQuery] = useState('');
@@ -121,6 +133,38 @@ export default function ProfilePage() {
     const [walletData, setWalletData] = useState<any>(null);
     const [commissionHistory, setCommissionHistory] = useState<any[]>([]);
     const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+    
+    // Referrer tab states
+    const [referralData, setReferralData] = useState<any>(null);
+    const [directReferrals, setDirectReferrals] = useState<any[]>([]);
+    const [downlines, setDownlines] = useState<any[]>([]);
+    const [downlineStats, setDownlineStats] = useState<any>(null);
+    const [commissionSummary, setCommissionSummary] = useState<any>(null);
+    const [commissionHistoryData, setCommissionHistoryData] = useState<any[]>([]);
+    const [isReferrerLoading, setIsReferrerLoading] = useState(false);
+    const [referralSearch, setReferralSearch] = useState<string>("");
+    const [referralStatusFilter, setReferralStatusFilter] = useState<string>("all");
+    const [referralStatusOpen, setReferralStatusOpen] = useState<boolean>(false);
+    const statusDropdownRef = useRef<HTMLDivElement | null>(null);
+
+    useEffect(() => {
+        function onDocClick(e: MouseEvent) {
+            if (!referralStatusOpen) return;
+            const target = e.target as Node;
+            if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
+                setReferralStatusOpen(false);
+            }
+        }
+        document.addEventListener('mousedown', onDocClick);
+        return () => document.removeEventListener('mousedown', onDocClick);
+    }, [referralStatusOpen]);
+    const [showBankInfoModal, setShowBankInfoModal] = useState(false);
+    const [bankInfoForm, setBankInfoForm] = useState({
+        bank_name: '',
+        bank_account_number: '',
+        bank_account_owner: '',
+        current_password: ''
+    });
 
     // Update profile form when user data changes
     useEffect(() => {
@@ -166,6 +210,48 @@ export default function ProfilePage() {
         }
     };
 
+    // Load referrer data
+    const loadReferrerData = async () => {
+        setIsReferrerLoading(true);
+        try {
+            const [referralsResponse, downlinesResponse, commissionSummaryResponse, commissionHistoryResponse] = await Promise.all([
+                apiService.getReferrals(),
+                apiService.getDownlines(2),
+                apiService.getCommissionSummary(),
+                apiService.getCommissionHistory()
+            ]);
+            
+            if (referralsResponse.success && referralsResponse.data) {
+                // Backend returns aggregated referral info at root, not under `referral`
+                const d: any = referralsResponse.data as any;
+                setReferralData(d);
+                setDirectReferrals(d.direct_referrals || []);
+                setDownlineStats(
+                    d.downline_stats || {
+                        direct_referrals_count: d.direct_referrals_count,
+                        total_downlines_count: d.total_downlines_count,
+                    }
+                );
+            }
+            
+            if (downlinesResponse.success && downlinesResponse.data) {
+                setDownlines(downlinesResponse.data.data || []);
+            }
+            
+            if (commissionSummaryResponse.success && commissionSummaryResponse.data) {
+                setCommissionSummary(commissionSummaryResponse.data);
+            }
+            
+            if (commissionHistoryResponse.success && commissionHistoryResponse.data) {
+                setCommissionHistoryData(commissionHistoryResponse.data.data || []);
+            }
+        } catch (error) {
+            console.error('Failed to load referrer data:', error);
+        } finally {
+            setIsReferrerLoading(false);
+        }
+    };
+
     // Load payments and mandates on enter relevant tabs
     useEffect(() => {
         async function loadData() {
@@ -173,6 +259,8 @@ export default function ProfilePage() {
             if (!user) return;
             if (activeTab === 'overview') {
                 loadOverviewData();
+            } else if (activeTab === 'referrer') {
+                loadReferrerData();
             } else if (activeTab === 'payment-history') {
                 setIsLoading(true);
                 try {
@@ -260,6 +348,55 @@ export default function ProfilePage() {
 
     const handleMedicalInsuranceRegistration = () => {
         setShowMedicalInsuranceModal(true);
+    };
+
+    // Copy referral link to clipboard
+    const copyReferralLink = async () => {
+        const base = process.env.NODE_ENV === 'production' ? 'https://wekongsi.com' : 'http://localhost:3000';
+        const referralLink = `${base}/register-external?agent_code=${user?.agent_code || ''}`;
+        try {
+            await navigator.clipboard.writeText(referralLink);
+            alert('Referral link copied to clipboard!');
+        } catch (err) {
+            console.error('Failed to copy referral link:', err);
+            alert('Failed to copy referral link');
+        }
+    };
+
+    // Handle bank info update
+    const handleBankInfoUpdate = async () => {
+        try {
+            const response = await apiService.updateBankInfo(bankInfoForm);
+            if (response.success) {
+                alert('Bank information updated successfully!');
+                setShowBankInfoModal(false);
+                // Update user data
+                if (user) {
+                    updateUser({
+                        ...user,
+                        bank_name: bankInfoForm.bank_name,
+                        bank_account_number: bankInfoForm.bank_account_number,
+                        bank_account_owner: bankInfoForm.bank_account_owner
+                    });
+                }
+            } else {
+                alert('Failed to update bank information: ' + response.message);
+            }
+        } catch (error) {
+            console.error('Error updating bank info:', error);
+            alert('Failed to update bank information');
+        }
+    };
+
+    // Initialize bank info form when modal opens
+    const openBankInfoModal = () => {
+        setBankInfoForm({
+            bank_name: user?.bank_name || '',
+            bank_account_number: user?.bank_account_number || '',
+            bank_account_owner: user?.bank_account_owner || user?.name || '',
+            current_password: ''
+        });
+        setShowBankInfoModal(true);
     };
 
     const handleViewPolicy = (policy: any) => {
@@ -452,10 +589,6 @@ export default function ProfilePage() {
                     <div className="space-y-6">
                         <div className="flex items-center justify-between">
                             <h2 className="text-2xl font-bold text-gray-800">Account Overview</h2>
-                            <div className="flex items-center gap-2 text-sm text-gray-500">
-                                <Clock className="w-4 h-4" />
-                                <span>Last updated: {new Date().toLocaleTimeString()}</span>
-                            </div>
                         </div>
 
                         {isOverviewLoading ? (
@@ -470,12 +603,12 @@ export default function ProfilePage() {
                                     <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
                                         <div className="flex items-center justify-between">
                                             <div>
-                                                <div className="text-sm opacity-90">Agent Code</div>
+                                <div className="text-sm opacity-90">Agent Code</div>
                                                 <div className="text-2xl font-bold mt-1">{user?.agent_code || 'N/A'}</div>
-                                            </div>
+                            </div>
                                             <UserIcon className="w-8 h-8 opacity-80" />
-                                        </div>
-                                    </div>
+                            </div>
+                        </div>
                                     
                                     <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
                                         <div className="flex items-center justify-between">
@@ -510,87 +643,56 @@ export default function ProfilePage() {
                                     </div>
                                 </div>
 
-                                {/* Performance Metrics */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    {/* Commission Trend Chart */}
-                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Commission Trend</h3>
-                                            <BarChart3 className="w-5 h-5 text-gray-500" />
-                                        </div>
-                                        <div className="h-64">
-                                            {commissionHistory.length > 0 ? (
-                                                <Line
-                                                    data={{
-                                                        labels: commissionHistory.slice(0, 6).map((item: any) => 
-                                                            new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                                        ),
-                                                        datasets: [{
-                                                            label: 'Commission (RM)',
-                                                            data: commissionHistory.slice(0, 6).map((item: any) => parseFloat(item.amount || 0)),
-                                                            borderColor: 'rgb(59, 130, 246)',
-                                                            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                                            tension: 0.4,
-                                                            fill: true
-                                                        }]
-                                                    }}
-                                                    options={{
-                                                        responsive: true,
-                                                        maintainAspectRatio: false,
-                                                        plugins: {
-                                                            legend: {
-                                                                display: false
+                                {/* Commission Trend Chart */}
+                                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                    <div className="flex items-center justify-between mb-4">
+                                        <h3 className="text-lg font-semibold text-gray-800">Commission Trend</h3>
+                                        <BarChart3 className="w-5 h-5 text-gray-500" />
+                                    </div>
+                                    <div className="h-64">
+                                        {commissionHistory.length > 0 ? (
+                                            <Line
+                                                data={{
+                                                    labels: commissionHistory.slice(0, 6).map((item: any) => 
+                                                        new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+                                                    ),
+                                                    datasets: [{
+                                                        label: 'Commission (RM)',
+                                                        data: commissionHistory.slice(0, 6).map((item: any) => parseFloat(item.amount || 0)),
+                                                        borderColor: 'rgb(59, 130, 246)',
+                                                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                                        tension: 0.4,
+                                                        fill: true
+                                                    }]
+                                                }}
+                                                options={{
+                                                    responsive: true,
+                                                    maintainAspectRatio: false,
+                                                    plugins: {
+                                                        legend: {
+                                                            display: false
+                                                        }
+                                                    },
+                                                    scales: {
+                                                        y: {
+                                                            beginAtZero: true,
+                                                            grid: {
+                                                                color: 'rgba(0, 0, 0, 0.05)'
                                                             }
                                                         },
-                                                        scales: {
-                                                            y: {
-                                                                beginAtZero: true,
-                                                                grid: {
-                                                                    color: 'rgba(0, 0, 0, 0.05)'
-                                                                }
-                                                            },
-                                                            x: {
-                                                                grid: {
-                                                                    display: false
-                                                                }
+                                                        x: {
+                                                            grid: {
+                                                                display: false
                                                             }
                                                         }
-                                                    }}
-                                                />
-                                            ) : (
-                                                <div className="flex items-center justify-center h-full text-gray-500">
-                                                    No commission data available
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Target Achievement */}
-                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Target Achievement</h3>
-                                            <Target className="w-5 h-5 text-gray-500" />
-                                        </div>
-                                        <div className="space-y-4">
-                                            <div className="text-center">
-                                                <div className="text-3xl font-bold text-gray-800 mb-2">
-                                                    {dashboardStats?.target_achievement || 0}%
-                                                </div>
-                                                <div className="text-sm text-gray-600">
-                                                    of monthly target achieved
-                                                </div>
+                                                    }
+                                                }}
+                                            />
+                                        ) : (
+                                            <div className="flex items-center justify-center h-full text-gray-500">
+                                                No commission data available
                                             </div>
-                                            <div className="w-full bg-gray-200 rounded-full h-3">
-                                                <div 
-                                                    className="bg-gradient-to-r from-blue-500 to-blue-600 h-3 rounded-full transition-all duration-500"
-                                                    style={{ width: `${Math.min(dashboardStats?.target_achievement || 0, 100)}%` }}
-                                                ></div>
-                                            </div>
-                                            <div className="flex justify-between text-sm text-gray-600">
-                                                <span>Target: RM {dashboardStats?.commission_target || '0.00'}</span>
-                                                <span>Achieved: RM {dashboardStats?.monthly_commission || '0.00'}</span>
-                                            </div>
-                                        </div>
+                                        )}
                                     </div>
                                 </div>
 
@@ -607,14 +709,7 @@ export default function ProfilePage() {
                                                 RM {walletData?.balance ? parseFloat(walletData.balance).toLocaleString() : '0.00'}
                                             </div>
                                             <div className="text-sm text-gray-600 mb-4">Available Balance</div>
-                                            <div className="flex gap-2">
-                                                <button className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-                                                    Withdraw
-                                                </button>
-                                                <button className="flex-1 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 transition-colors">
-                                                    View History
-                                                </button>
-                                            </div>
+                                            
                                         </div>
                                     </div>
 
@@ -709,7 +804,7 @@ export default function ProfilePage() {
                                     onClick={handleChangePhone}
                                     className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
                                 >
-                                    Change Phone Number
+                                    Change Email
                                 </button>
                                 <button 
                                     onClick={handleChangePassword}
@@ -767,38 +862,48 @@ export default function ProfilePage() {
                                 </div>
                                 <button
                                     onClick={() => handleViewPolicy({
-                                        name: 'MediPlan Coop',
+                                        planName: 'MediPlan Coop',
+                                        description: 'Comprehensive medical insurance coverage with extensive benefits',
                                         type: 'Medical Cooperative Plan',
-                                        color: 'from-blue-600 to-cyan-600',
-                                        details: {
-                                            annualLimit: 'RM 1,000,000',
-                                            roomBoard: 'RM 250/day',
-                                            panelHospitals: '250',
-                                            panelClinics: '4,000',
-                                            tpa: 'eMAS (Eximius Medical Administration Solutions)',
-                                            ageEligibility: '30 days to 45 years (renewal up to 100)',
-                                            waitingPeriod: '90 days general, 180 days specific',
+                                        premium: 'RM1,080/year or RM90/month',
+                                        coveragePeriod: '1 Year',
+                                        status: 'Active',
+                                        gradient: 'from-blue-600 to-cyan-600',
                                             benefits: [
-                                                'Room & Board: RM250 per day',
-                                                'Ambulance Fees: Included',
-                                                'Intensive Care Unit: Included',
-                                                'Hospital Supplies & Services: Included',
-                                                'Surgical Fees: Included',
-                                                'Operating Theater Fees: Included',
-                                                'Anesthetist Fees: Included',
-                                                'In-hospital Doctor Visit: Included',
-                                                'Day Care & Day Surgery: Included',
-                                                'Second Surgical Opinion: Included',
-                                                'Emergency Accidental Dental: Included',
-                                                'Covid Test for Admission: Included',
-                                                'Government Hospital Allowance: RM100/day',
-                                                'Pre-Hospital Diagnostic: RM5,000',
-                                                'Accidental Injury Surgery: RM10,000',
-                                                'Bereavement: RM10,000',
-                                                'Outpatient Cancer Treatment: RM100,000',
-                                                'Conditional Outpatient Benefits: As Charged'
-                                            ]
-                                        }
+                                            { name: 'Room & Board', amount: 'RM250' },
+                                            { name: 'Annual Limit', amount: 'RM1,000,000' },
+                                            { name: 'Government Hospital Allowance', amount: 'RM100/day' }
+                                        ],
+                                        detailedBenefits: [
+                                            { name: 'Room & Board', amount: '250' },
+                                            { name: 'Ambulance Fees', amount: 'Included' },
+                                            { name: 'Intensive Care Unit', amount: 'Included' },
+                                            { name: 'Hospital Supplies & Services', amount: 'Included' },
+                                            { name: 'Surgical Fees', amount: 'Included' },
+                                            { name: 'Operating Theater Fees', amount: 'Included' },
+                                            { name: 'Anesthetist Fees', amount: 'Included' },
+                                            { name: 'In-hospital Doctor Visit', amount: 'Included' },
+                                            { name: 'Day Care & Day Surgery', amount: 'Included' },
+                                            { name: 'Second Surgical / Treatment Opinion', amount: 'Included' },
+                                            { name: 'Emergency Accidental Dental Treatment', amount: 'Included' },
+                                            { name: 'Covid Test for Admission Purpose', amount: 'Included' },
+                                            { name: 'Daily Cash Allowance in Government Hospital', amount: '100' },
+                                            { name: 'Pre-Hospital Diagnostic Test & Consultation', amount: '5,000' },
+                                            { name: 'Accidental Injury Surgery / Treatment', amount: '10,000' },
+                                            { name: 'Bereavement', amount: '10,000' },
+                                            { name: 'Out-patient Cancer Treatment', amount: '100,000' },
+                                            { name: 'Conditional Outpatient Benefits', amount: 'As Charged' }
+                                        ],
+                                        terms: [
+                                            'Open to healthy Malaysian citizens with no pre-existing medical conditions',
+                                            'Age eligibility: 30 days to 45 years old for enrollment, with renewal allowed up to 100 years old',
+                                            'Contribution rates are fixed regardless of gender, age, or occupation',
+                                            'Hospital admission must follow the prescribed procedures',
+                                            '90 days waiting period for general illnesses',
+                                            '180 days waiting period for specific illnesses',
+                                            'Third Party Administrator - eMAS (Eximius Medical Administration Solutions)',
+                                            '250 Panel Hospital, 4,000 Panel Clinics'
+                                        ]
                                     })}
                                     className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 text-white py-2 px-4 rounded-lg font-medium hover:from-blue-700 hover:to-cyan-700 transition-all duration-300 flex items-center justify-center group"
                                 >
@@ -834,43 +939,48 @@ export default function ProfilePage() {
                                 </div>
                                 <button
                                     onClick={() => handleViewPolicy({
-                                        name: 'Senior Care Plan Gold 270',
+                                        planName: 'Senior Care Plan Gold 270',
+                                        description: 'Comprehensive senior care insurance with extensive medical coverage',
                                         type: 'Senior Care Plan',
-                                        color: 'from-yellow-600 to-orange-600',
-                                        details: {
-                                            annualLimit: 'RM 75,000',
-                                            roomBoard: 'RM 270/day',
-                                            panelHospitals: '148',
-                                            tpa: 'MiCare',
-                                            ageEligibility: '46-65 years (renewal up to 70)',
-                                            pricing: {
-                                                monthly: 'RM 150 + RM 150 Commitment',
-                                                quarterly: 'RM 450',
-                                                semiAnnually: 'RM 900',
-                                                annually: 'RM 1,800'
-                                            },
+                                        premium: 'RM150/month + RM150 Commitment',
+                                        coveragePeriod: '1 Year',
+                                        status: 'Active',
+                                        gradient: 'from-yellow-600 to-orange-600',
                                             benefits: [
-                                                'Hospital Room & Board: RM270/day (max 180 days)',
-                                                'Intensive Care Unit: Full Reimbursement',
-                                                'Hospital Supplies and Services: Included',
-                                                'Surgeon Fee: Included',
-                                                'Anaesthetist Fee: Included',
-                                                'Operating Theatre Charges: Included',
-                                                'Daily Physician Visit: Included',
-                                                'Pre-Hospital Diagnostic Tests: Included',
-                                                'Pre-Hospitalization Consultation: Included',
-                                                'Second Surgical Opinion: Included',
-                                                'Post-Hospitalization Treatment: Included',
-                                                'Emergency Accidental Outpatient: Included',
-                                                'Outpatient Cancer Treatment: Included',
-                                                'Outpatient Kidney Dialysis: Included',
-                                                'Daycare Procedure: Included',
-                                                'Ambulance Charges: Included',
-                                                'Government Hospital Allowance: RM100/day',
-                                                'Medical Report Fee: RM80',
-                                                'Funeral Expenses: RM10,000'
-                                            ]
-                                        }
+                                            { name: 'Room & Board', amount: 'RM270/day' },
+                                            { name: 'Annual Limit', amount: 'RM75,000' },
+                                            { name: 'Government Hospital Allowance', amount: 'RM100/day' }
+                                        ],
+                                        detailedBenefits: [
+                                            { name: 'Hospital Room & Board', amount: '270' },
+                                            { name: 'Intensive Care Unit', amount: 'Full Reimbursement' },
+                                            { name: 'Hospital Supplies and Services', amount: 'Included' },
+                                            { name: 'Surgeon Fee', amount: 'Included' },
+                                            { name: 'Anaesthetist Fee', amount: 'Included' },
+                                            { name: 'Operating Theatre Charges', amount: 'Included' },
+                                            { name: 'Daily in-Hospital Physician Visit', amount: 'Included' },
+                                            { name: 'Pre-Hospital Diagnostic Tests', amount: 'Included' },
+                                            { name: 'Pre-Hospitalization Specialist Consultation', amount: 'Included' },
+                                            { name: 'Second Surgical Opinion', amount: 'Included' },
+                                            { name: 'Post-Hospitalization Treatment', amount: 'Included' },
+                                            { name: 'Emergency Accidental Outpatient Treatment', amount: 'Included' },
+                                            { name: 'Outpatient Cancer Treatment', amount: 'Included' },
+                                            { name: 'Outpatient Kidney Dialysis Treatment', amount: 'Included' },
+                                            { name: 'Daycare Procedure', amount: 'Included' },
+                                            { name: 'Ambulance Charges', amount: 'Included' },
+                                            { name: 'Government Hospital Daily Cash Allowance', amount: '100' },
+                                            { name: 'Medical Report Fee Reimbursement', amount: '80' },
+                                            { name: 'Funeral Expenses - Accidental', amount: '10,000' }
+                                        ],
+                                        terms: [
+                                            'Minimum entry age is 46 years, and maximum entry age is 65 years',
+                                            'Renewals are allowed up to 70 years old',
+                                            'Healthy Malaysian Citizens',
+                                            'Payment modes include monthly, quarterly, semi-annual, and annual options',
+                                            'Payment methods available: debit/credit card, FPX Online, BNPL, or e-Wallet',
+                                            'Panel Hospital - MiCare: 148 Panel Hospital Nationwide',
+                                            'Contributions as low as RM5.00 Per Day'
+                                        ]
                                     })}
                                     className="w-full bg-gradient-to-r from-yellow-600 to-orange-600 text-white py-2 px-4 rounded-lg font-medium hover:from-yellow-700 hover:to-orange-700 transition-all duration-300 flex items-center justify-center group"
                                 >
@@ -906,43 +1016,48 @@ export default function ProfilePage() {
                                 </div>
                                 <button
                                     onClick={() => handleViewPolicy({
-                                        name: 'Senior Care Plan Diamond 370',
+                                        planName: 'Senior Care Plan Diamond 370',
+                                        description: 'Premium senior care insurance with enhanced medical coverage',
                                         type: 'Premium Senior Care',
-                                        color: 'from-purple-600 to-pink-600',
-                                        details: {
-                                            annualLimit: 'RM 100,000',
-                                            roomBoard: 'RM 370/day',
-                                            panelHospitals: '148',
-                                            tpa: 'MiCare',
-                                            ageEligibility: '46-65 years (renewal up to 70)',
-                                            pricing: {
-                                                monthly: 'RM 210 + RM 210 Commitment',
-                                                quarterly: 'RM 630',
-                                                semiAnnually: 'RM 1,260',
-                                                annually: 'RM 2,520'
-                                            },
+                                        premium: 'RM210/month + RM210 Commitment',
+                                        coveragePeriod: '1 Year',
+                                        status: 'Active',
+                                        gradient: 'from-purple-600 to-pink-600',
                                             benefits: [
-                                                'Hospital Room & Board: RM370/day (max 180 days)',
-                                                'Intensive Care Unit: Full Reimbursement',
-                                                'Hospital Supplies and Services: Included',
-                                                'Surgeon Fee: Included',
-                                                'Anaesthetist Fee: Included',
-                                                'Operating Theatre Charges: Included',
-                                                'Daily Physician Visit: Included',
-                                                'Pre-Hospital Diagnostic Tests: Included',
-                                                'Pre-Hospitalization Consultation: Included',
-                                                'Second Surgical Opinion: Included',
-                                                'Post-Hospitalization Treatment: Included',
-                                                'Emergency Accidental Outpatient: Included',
-                                                'Outpatient Cancer Treatment: Included',
-                                                'Outpatient Kidney Dialysis: Included',
-                                                'Daycare Procedure: Included',
-                                                'Ambulance Charges: Included',
-                                                'Government Hospital Allowance: RM200/day',
-                                                'Medical Report Fee: RM80',
-                                                'Funeral Expenses: RM10,000'
-                                            ]
-                                        }
+                                            { name: 'Room & Board', amount: 'RM370/day' },
+                                            { name: 'Annual Limit', amount: 'RM100,000' },
+                                            { name: 'Government Hospital Allowance', amount: 'RM200/day' }
+                                        ],
+                                        detailedBenefits: [
+                                            { name: 'Hospital Room & Board', amount: '370' },
+                                            { name: 'Intensive Care Unit', amount: 'Full Reimbursement' },
+                                            { name: 'Hospital Supplies and Services', amount: 'Included' },
+                                            { name: 'Surgeon Fee', amount: 'Included' },
+                                            { name: 'Anaesthetist Fee', amount: 'Included' },
+                                            { name: 'Operating Theatre Charges', amount: 'Included' },
+                                            { name: 'Daily in-Hospital Physician Visit', amount: 'Included' },
+                                            { name: 'Pre-Hospital Diagnostic Tests', amount: 'Included' },
+                                            { name: 'Pre-Hospitalization Specialist Consultation', amount: 'Included' },
+                                            { name: 'Second Surgical Opinion', amount: 'Included' },
+                                            { name: 'Post-Hospitalization Treatment', amount: 'Included' },
+                                            { name: 'Emergency Accidental Outpatient Treatment', amount: 'Included' },
+                                            { name: 'Outpatient Cancer Treatment', amount: 'Included' },
+                                            { name: 'Outpatient Kidney Dialysis Treatment', amount: 'Included' },
+                                            { name: 'Daycare Procedure', amount: 'Included' },
+                                            { name: 'Ambulance Charges', amount: 'Included' },
+                                            { name: 'Government Hospital Daily Cash Allowance', amount: '200' },
+                                            { name: 'Medical Report Fee Reimbursement', amount: '80' },
+                                            { name: 'Funeral Expenses - Accidental', amount: '10,000' }
+                                        ],
+                                        terms: [
+                                            'Minimum entry age is 46 years, and maximum entry age is 65 years',
+                                            'Renewals are allowed up to 70 years old',
+                                            'Healthy Malaysian Citizens',
+                                            'Payment modes include monthly, quarterly, semi-annual, and annual options',
+                                            'Payment methods available: debit/credit card, FPX Online, BNPL, or e-Wallet',
+                                            'Panel Hospital - MiCare: 148 Panel Hospital Nationwide',
+                                            'Contributions as low as RM7.00 Per Day'
+                                        ]
                                     })}
                                     className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-2 px-4 rounded-lg font-medium hover:from-purple-700 hover:to-pink-700 transition-all duration-300 flex items-center justify-center group"
                                 >
@@ -1294,268 +1409,204 @@ export default function ProfilePage() {
 
                         {activeReferrerTab === 'referral' && (
                             <div className="space-y-6">
+                                {isReferrerLoading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                                        <span className="ml-2 text-gray-600">Loading referral data...</span>
+                                    </div>
+                                ) : (
+                                    <>
+                                        {/* Account Overview */}
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                            <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
+                                                <div className="text-sm opacity-90">Direct Referral</div>
+                                                <div className="text-3xl font-bold mt-2">
+                                                    {directReferrals.length}
+                                        </div>
+                                        </div>
+                                            <div className="bg-white border border-gray-200 rounded-xl p-6">
+                                                <div className="text-sm text-gray-500">Total Commission</div>
+                                                <div className="text-3xl font-bold mt-2 text-gray-800">
+                                                    RM {user?.total_commission_earned || '0.00'}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                        {/* Referrals Breakdown */}
                                 <div className="bg-white border border-gray-200 rounded-lg p-6">
                                     <div className="flex items-center justify-between mb-4">
-                                        <h3 className="font-semibold text-gray-800">My Referral Link</h3>
-                                        <button
-                                            onClick={handleMedicalInsuranceRegistration}
-                                            className="flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                                        >
-                                            <Plus className="w-4 h-4" />
-                                            Register
-                                        </button>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={`https://app.wekongsi.com/auth/register/${user?.agent_code || ''}`}
-                                                readOnly
-                                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
-                                            />
-                                            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors">
-                                                Copy Referral Link
-                                            </button>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                                                <Grid3X3 className="w-4 h-4 text-gray-600" />
-                                            </button>
-                                            <button className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                                                <Share2 className="w-4 h-4 text-gray-600" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="bg-white border border-gray-200 rounded-lg p-6">
-                                    <h3 className="font-semibold text-gray-800 mb-4">My Landing Page</h3>
-                                    <div className="space-y-3">
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={`https://www.wekongsi.com/agent/${user?.agent_code || ''}`}
-                                                readOnly
-                                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
-                                            />
-                                            <button className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors">
-                                                Copy Landing Page
-                                            </button>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                                                <Grid3X3 className="w-4 h-4 text-gray-600" />
-                                            </button>
-                                            <button className="p-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
-                                                <Share2 className="w-4 h-4 text-gray-600" />
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* External Medical Insurance Registration Link */}
-                                <div className="bg-white border border-gray-200 rounded-lg p-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="font-semibold text-gray-800">Medical Insurance Registration Link</h3>
-                                        <div className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                                            External Registration
-                                        </div>
-                                    </div>
-                                    <div className="space-y-3">
-                                        <p className="text-sm text-gray-600">
-                                            Share this link to allow clients to register for medical insurance directly under your agent code.
-                                        </p>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="text"
-                                                value={`${typeof window !== 'undefined' ? window.location.origin : ''}/register-external?agent_code=${user?.agent_code || ''}`}
-                                                readOnly
-                                                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
-                                            />
-                                            <button 
-                                                onClick={() => {
-                                                    if (typeof window !== 'undefined') {
-                                                        navigator.clipboard.writeText(`${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`);
-                                                        // You could add a toast notification here
-                                                    }
-                                                }}
-                                                className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm hover:bg-emerald-700 transition-colors"
-                                            >
-                                                Copy Link
-                                            </button>
-                                        </div>
-                                        <div className="flex gap-2">
-                                            <button 
-                                                onClick={() => {
-                                                    if (typeof window !== 'undefined') {
-                                                        const url = `${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`;
-                                                        window.open(`https://wa.me/?text=${encodeURIComponent(`Register for Medical Insurance: ${url}`)}`, '_blank');
-                                                    }
-                                                }}
-                                                className="p-2 border border-green-300 rounded-lg hover:bg-green-50 transition-colors"
-                                                title="Share via WhatsApp"
-                                            >
-                                                <svg className="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 24 24">
-                                                    <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893A11.821 11.821 0 0020.885 3.488"/>
-                                                </svg>
-                                            </button>
-                                            <button 
-                                                onClick={() => {
-                                                    if (typeof window !== 'undefined') {
-                                                        const url = `${window.location.origin}/register-external?agent_code=${user?.agent_code || ''}`;
-                                                        window.open(`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent('Register for Medical Insurance')}`, '_blank');
-                                                    }
-                                                }}
-                                                className="p-2 border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
-                                                title="Share via Telegram"
-                                            >
-                                                <svg className="w-4 h-4 text-blue-600" fill="currentColor" viewBox="0 0 24 24">
-                                                    <path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/>
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <h4 className="font-semibold text-gray-800">Account Overview</h4>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                        <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
-                                            <div className="text-sm opacity-90">Direct Referral</div>
-                                            <div className="text-3xl font-bold mt-2">14</div>
-                                        </div>
-                                        <div className="bg-white rounded-xl p-6 border border-gray-200">
-                                            <div className="text-sm text-gray-600">Total Commission</div>
-                                            <div className="text-3xl font-bold text-gray-800 mt-2">RM 14,378.48</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div className="space-y-4">
-                                    <h4 className="font-semibold text-gray-800">Referrals Breakdown</h4>
-                                    <div className="bg-white border border-gray-200 rounded-lg p-4">
-                                        <div className="flex flex-col sm:flex-row gap-4 mb-4">
-                                            <div className="flex-1">
-                                                <div className="relative">
-                                                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-gray-400" />
+                                                <h3 className="font-semibold text-gray-800">Referrals Breakdown</h3>
+                                                <div className="flex items-center gap-2 relative" ref={statusDropdownRef}>
                                                     <input
                                                         type="text"
-                                                        placeholder="Search name or phone numb"
-                                                        className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm"
+                                                        value={referralSearch}
+                                                        onChange={(e) => setReferralSearch(e.target.value)}
+                                                        placeholder="Search name, phone or code"
+                                                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm w-64"
                                                     />
+                                                    <button
+                                                        onClick={() => setReferralStatusOpen(v => !v)}
+                                                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 flex items-center gap-1"
+                                                    >
+                                                        <span className="capitalize">{referralStatusFilter === 'all' ? 'All Status' : referralStatusFilter}</span>
+                                                        <ChevronDown className={`w-4 h-4 transition-transform ${referralStatusOpen ? 'rotate-180' : ''}`} />
+                                                    </button>
+                                                    {referralStatusOpen && (
+                                                        <div className="absolute right-0 top-full mt-2 w-40 bg-white border border-gray-200 rounded-md shadow-lg z-10">
+                                                            {['all','active','pending','suspended','terminated'].map((s) => (
+                                                                <div
+                                                                    key={s}
+                                                                    onClick={() => { setReferralStatusFilter(s); setReferralStatusOpen(false); }}
+                                                                    className={`px-3 py-2 text-sm cursor-pointer hover:bg-gray-50 capitalize ${referralStatusFilter === s ? 'text-emerald-700 font-semibold' : 'text-gray-700'}`}
+                                                                >
+                                                                    {s === 'all' ? 'All Status' : s}
+                                                                </div>
+                                                            ))}
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </div>
-                                            <select className="px-4 py-2 border border-gray-300 rounded-lg text-sm">
-                                                <option>All Status</option>
-                                            </select>
+
+                                            {/* Status Legend */}
+                                            <div className="flex items-center gap-6 mb-4 text-sm">
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                    <span className="text-gray-600">Active</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                                                    <span className="text-gray-600">Pending Payment, Probation</span>
+                                                </div>
+                                                <div className="flex items-center gap-1">
+                                                    <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                                                    <span className="text-gray-600">Suspended, Terminated, Probation Rejected</span>
+                                    </div>
+                                </div>
+
+                                            {/* Level 1 Referrals */}
+                                <div className="space-y-4">
+                                                <div className="border border-gray-200 rounded-lg p-4">
+                                                    <div className="flex items-center justify-between mb-3">
+                                                        <h4 className="font-medium text-gray-800">Level 2</h4>
+                                                        <div className="flex items-center gap-4 text-sm">
+                                                            <div className="flex items-center gap-1">
+                                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'active').length}</span>
+                                                </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'pending').length}</span>
+                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'suspended' || r.status === 'terminated').length}</span>
                                         </div>
-                                        
-                                        <div className="flex flex-wrap gap-4 mb-4 text-sm">
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-                                                <span>Active</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 bg-orange-500 rounded-full"></div>
-                                                <span>Pending Payment, Probation</span>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-                                                <span>Suspended, Terminated, Probation Rejected</span>
                                             </div>
                                         </div>
 
-                                        <div className="space-y-3">
-                                            <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                                <div className="flex items-center gap-3">
-                                                    <span className="font-medium">Level 1</span>
-                                                    <div className="flex gap-1">
-                                                        <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                                        <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                                                        <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                                                    {/* Direct Referrals List */}
+                                                    <div className="space-y-3 max-h-80 overflow-y-auto">
+                                                        {directReferrals
+                                                            .filter(r => referralStatusFilter === 'all' ? true : r.status === referralStatusFilter)
+                                                            .filter(r => {
+                                                                const q = referralSearch.trim().toLowerCase();
+                                                                if (!q) return true;
+                                                                const name = (r.agent?.name || '').toLowerCase();
+                                                                const phone = (r.agent?.phone_number || '').toLowerCase();
+                                                                const code = (r.agent?.agent_code || r.agent_code || '').toLowerCase();
+                                                                return name.includes(q) || phone.includes(q) || code.includes(q);
+                                                            }).length > 0 ? (
+                                                            directReferrals
+                                                                .filter(r => referralStatusFilter === 'all' ? true : r.status === referralStatusFilter)
+                                                                .filter(r => {
+                                                                    const q = referralSearch.trim().toLowerCase();
+                                                                    if (!q) return true;
+                                                                    const name = (r.agent?.name || '').toLowerCase();
+                                                                    const phone = (r.agent?.phone_number || '').toLowerCase();
+                                                                    const code = (r.agent?.agent_code || r.agent_code || '').toLowerCase();
+                                                                    return name.includes(q) || phone.includes(q) || code.includes(q);
+                                                                })
+                                                                .map((referral, index) => (
+                                                                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                                                                                <UserIcon className="w-4 h-4 text-emerald-600" />
+                                                                            </div>
+                                                                            <div>
+                                                                                <div className="font-medium text-gray-800">
+                                                                                    {referral.agent?.name || 'Unknown'}
+                                                                                </div>
+                                                                                <div className="text-sm text-gray-500">
+                                                                                    {referral.agent?.phone_number || 'N/A'}
+                                                                                </div>
+                                                                                <div className="text-xs text-gray-400">
+                                                                                    {new Date(referral.created_at).toLocaleDateString('en-US', {
+                                                                                        year: 'numeric',
+                                                                                        month: '2-digit',
+                                                                                        day: '2-digit',
+                                                                                        hour: '2-digit',
+                                                                                        minute: '2-digit'
+                                                                                    })}
+                                                                                </div>
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <div className="flex items-center gap-1">
+                                                                                {referral.status === 'active' && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
+                                                                                {referral.status === 'pending' && <div className="w-2 h-2 bg-orange-500 rounded-full"></div>}
+                                                                                {(referral.status === 'suspended' || referral.status === 'terminated') && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
+                                                                            </div>
+                                                                            <button 
+                                                                                onClick={() => handleViewUser(referral)}
+                                                                                className="px-3 py-1 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700"
+                                                                            >
+                                                                                View User
+                                                                            </button>
+                                                                        </div>
+                                                                    </div>
+                                                                ))
+                                                        ) : (
+                                                            <div className="text-center py-8 text-gray-500">
+                                                                No direct referrals found
                                                     </div>
-                                                    <span className="text-sm text-gray-600">13, 1, 0</span>
-                                                </div>
-                                                <ChevronDown className="w-4 h-4 text-gray-600" />
-                                            </div>
-                                            
-                                            <div className="space-y-2 ml-4">
-                                                {[
-                                                    { name: "MOHD SHARULNIZAM BIN MOHD SALEH", phone: "+60173014642", status: "Active", createdAt: "2024-06-05 03:45 PM", dots: ["green", "yellow"] },
-                                                    { name: "ZUL AZRI BIN MOHD KHAMIS @ MOHD GENDOT", phone: "", status: "Active", createdAt: "2024-06-05 12:53 PM", dots: ["green"] },
-                                                    { name: "MOHD AZRUL BIN WAHIT", phone: "", status: "Active", createdAt: "2024-06-05 12:56 AM", dots: ["green"] },
-                                                    { name: "ROSLINA BINTI MAT SAID", phone: "", status: "Active", createdAt: "2024-05-16 11:46 PM", dots: ["green"] },
-                                                    { name: "SYAFIEQ ZAILAN", phone: "", status: "Active", createdAt: "2024-04-28 06:48 AM", dots: ["green", "red"] },
-                                                    { name: "NOOR SHEIKHA @ AZIL BIN MOHAMED AZMI", phone: "", status: "Active", createdAt: "2024-04-04 09:30 PM", dots: ["green"] },
-                                                    { name: "NURFADZILINDA BINTI MD AKHIR", phone: "", status: "Active", createdAt: "2024-04-04 01:27 AM", dots: ["green"] },
-                                                    { name: "MUHAMMAD RASHIDI BIN KHAIRUL OMAR KUMAR", phone: "", status: "Active", createdAt: "2024-03-31 09:51 PM", dots: ["green"] },
-                                                    { name: "ZULHAIZAL BIN AHAMAD PAZIR", phone: "", status: "Active", createdAt: "2024-03-27 12:58 AM", dots: ["green"] },
-                                                    { name: "DERIC TING", phone: "", status: "Active", createdAt: "2024-03-27 12:27 AM", dots: ["green", "yellow", "red"] },
-                                                    { name: "MUHAMMAD MUSLIM BIN MAT SAMSUDIN", phone: "", status: "Active", createdAt: "2024-03-23 09:51 PM", dots: ["green"] },
-                                                    { name: "MUHAMMAD ADZIM BIN SHAMSUL ANUAR", phone: "", status: "Active", createdAt: "2024-03-19 01:17 AM", dots: ["green"] },
-                                                    { name: "NOOR LIYANA BT KHAIRUL OMAR KUMAR", phone: "", status: "Active", createdAt: "2024-03-18 10:37 PM", dots: ["green", "red", "red"] },
-                                                    { name: "MOHD FUAD BIN SANUSI", phone: "", status: "Active", createdAt: "2024-03-04 07:51 PM", dots: ["green", "yellow"] }
-                                                ].map((member, index) => (
-                                                    <div key={index} className="bg-white border border-gray-100 rounded-lg p-3">
-                                                        <div className="flex items-start justify-between">
-                                                            <div className="flex-1 min-w-0">
-                                                                <div className="font-medium text-gray-800 text-sm truncate">{member.name}</div>
-                                                                {member.phone && (
-                                                                    <div className="text-xs text-gray-500 mt-1">{member.phone}</div>
-                                                                )}
-                                                                <div className="text-xs text-gray-500 mt-1">Created At: {member.createdAt}</div>
-                                                            </div>
-                                                            <div className="flex items-center gap-2 ml-3">
-                                                                <div className="flex gap-1">
-                                                                    {member.dots.map((dot, dotIndex) => (
-                                                                        <div 
-                                                                            key={dotIndex} 
-                                                                            className={`w-2 h-2 rounded-full ${
-                                                                                dot === 'green' ? 'bg-green-500' : 
-                                                                                dot === 'yellow' ? 'bg-orange-500' : 'bg-red-500'
-                                                                            }`}
-                                                                        />
-                                                                    ))}
-                                                                </div>
-                                                                <button className="px-2 py-1 bg-emerald-100 text-emerald-700 rounded text-xs hover:bg-emerald-200 transition-colors">
-                                                                    View User
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                ))}
+                                                        )}
                                             </div>
                                         </div>
-                                        
-                                        <div className="space-y-2 mt-4">
-                                            {[
-                                                { level: 2, active: 99, pending: 23, suspended: 23 },
-                                                { level: 3, active: 46, pending: 34, suspended: 34 },
-                                                { level: 4, active: 75, pending: 27, suspended: 28 },
-                                                { level: 5, active: 107, pending: 90, suspended: 93 },
-                                                { level: 6, active: 203, pending: 135, suspended: 138 },
-                                                { level: 7, active: 139, pending: 80, suspended: 80 },
-                                                { level: 8, active: 118, pending: 35, suspended: 35 },
-                                                { level: 9, active: 38, pending: 4, suspended: 4 },
-                                                { level: 10, active: 55, pending: 2, suspended: 2 },
-                                                { level: 11, active: 6, pending: 0, suspended: 0 },
-                                                { level: 12, active: 8, pending: 1, suspended: 0 }
-                                            ].map((levelData, index) => (
-                                                <div key={index} className="flex items-center justify-between p-2 bg-gray-50 rounded-lg">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className="font-medium text-sm">Level {levelData.level}</span>
-                                                        <div className="flex gap-1">
-                                                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                                                            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
                                                         </div>
-                                                        <span className="text-xs text-gray-600">{levelData.active} Active, {levelData.pending} Pending/Probation, {levelData.suspended} Suspended/Terminated/Rejected</span>
                                                     </div>
+
+                                        {/* My Referral Link */}
+                                        <div className="bg-white border border-gray-200 rounded-lg p-6">
+                                            <div className="flex items-center justify-between mb-4">
+                                                <h3 className="font-semibold text-gray-800">My Referral Link</h3>
+                                                <button
+                                                    onClick={handleMedicalInsuranceRegistration}
+                                                    className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                                                >
+                                                    <Plus className="w-4 h-4" />
+                                                    Register
+                                                </button>
                                                 </div>
-                                            ))}
+                                            <div className="space-y-3">
+                                                <div className="flex gap-2">
+                                                    <input
+                                                        type="text"
+                                                        value={`${process.env.NODE_ENV === 'production' ? 'https://wekongsi.com' : 'http://localhost:3000'}/register-external?agent_code=${user?.agent_code || ''}`}
+                                                        readOnly
+                                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg bg-gray-50 text-sm"
+                                                    />
+                                                    <button 
+                                                        onClick={copyReferralLink}
+                                                        className="px-4 py-2 bg-sky-600 text-white rounded-lg text-sm hover:bg-sky-700 transition-colors"
+                                                    >
+                                                        Copy Link
+                                                    </button>
                                         </div>
                                     </div>
                                 </div>
+
+                                    </>
+                                )}
                             </div>
                         )}
 
@@ -1563,26 +1614,30 @@ export default function ProfilePage() {
                             <div className="space-y-4">
                                 <h3 className="font-semibold text-gray-800">Bank Profile</h3>
                                 <div className="bg-white border border-gray-200 rounded-lg p-6">
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
                                         <div>
-                                            <div className="text-gray-500 text-sm mb-1">Bank Name</div>
-                                            <div className="font-semibold text-gray-800">{user?.bank_name || '-'}</div>
+                                            <div className="text-gray-500 text-xs mb-1">Bank Name</div>
+                                            <div className="font-semibold text-gray-900 text-sm sm:text-base">{user?.bank_name || '-'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-gray-500 text-sm mb-1">Owner Name</div>
-                                            <div className="font-semibold text-gray-800">{user?.bank_account_owner || user?.name || '-'}</div>
+                                            <div className="text-gray-500 text-xs mb-1">Owner Name</div>
+                                            <div className="font-semibold text-gray-900 text-sm sm:text-base">{user?.bank_account_owner || user?.name || '-'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-gray-500 text-sm mb-1">Bank Account Number</div>
-                                            <div className="font-semibold text-gray-800">{user?.bank_account_number || '-'}</div>
+                                            <div className="text-gray-500 text-xs mb-1">Bank Account Number</div>
+                                            <div className="font-semibold text-gray-900 text-sm sm:text-base">{user?.bank_account_number || '-'}</div>
                                         </div>
                                         <div>
-                                            <div className="text-gray-500 text-sm mb-1">Owner NRIC</div>
-                                            <div className="font-semibold text-gray-800">{user?.nric || '-'}</div>
+                                            <div className="text-gray-500 text-xs mb-1">Owner NRIC</div>
+                                            <div className="font-semibold text-gray-900 text-sm sm:text-base">{user?.nric || '-'}</div>
                                         </div>
                                     </div>
-                                    <div className="mt-6">
-                                        <button className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors">
+                                    <div className="mt-6 flex items-center justify-between">
+                                        <p className="text-xs text-gray-500">Keep your bank info updated to receive withdrawals without delay.</p>
+                                        <button 
+                                            onClick={openBankInfoModal}
+                                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
+                                        >
                                             Update Bank Profile
                                         </button>
                                     </div>
@@ -1592,42 +1647,73 @@ export default function ProfilePage() {
 
                         {activeReferrerTab === 'commission' && (
                             <div className="space-y-4">
+                                {isReferrerLoading ? (
+                                    <div className="flex items-center justify-center py-12">
+                                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-600"></div>
+                                        <span className="ml-2 text-gray-600">Loading commission data...</span>
+                                    </div>
+                                ) : (
+                                    <>
                                 <h3 className="font-semibold text-gray-800">My Commission</h3>
                                 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
-                                        <div className="text-sm opacity-90">Total Accumulated Commission</div>
-                                        <div className="text-3xl font-bold mt-2">MYR 14,346.45</div>
+                                        <div className="text-xs opacity-90">Total Accumulated</div>
+                                        <div className="text-3xl font-bold mt-2">RM {commissionSummary?.total_commission || user?.total_commission_earned || '0.00'}</div>
                                     </div>
-                                    <div className="bg-gradient-to-br from-teal-400 to-teal-500 rounded-xl p-6 text-gray-800">
-                                        <div className="text-sm text-gray-700">Current Month Commission</div>
-                                        <div className="text-3xl font-bold mt-2">MYR 1,098.96</div>
+                                    <div className="bg-gradient-to-br from-teal-400 to-teal-500 rounded-xl p-6 text-gray-900">
+                                        <div className="text-xs text-gray-800">Current Month</div>
+                                        <div className="text-3xl font-bold mt-2">RM {commissionSummary?.monthly_commission || '0.00'}</div>
+                                    </div>
+                                    <div className="bg-white border border-gray-200 rounded-xl p-6">
+                                        <div className="text-xs text-gray-500">Pending Commission</div>
+                                        <div className="text-3xl font-bold mt-2 text-gray-800">RM {commissionSummary?.pending_commission || '0.00'}</div>
                                     </div>
                                 </div>
                                 
                                 <div className="bg-white border border-gray-200 rounded-lg p-6">
                                     <div className="flex items-center justify-between mb-4">
                                         <h4 className="font-semibold text-gray-800">Monthly Commission History</h4>
-                                        <a href="#" className="text-sm text-emerald-600 hover:text-emerald-700">Click to view more</a>
+                                        <span className="text-sm text-gray-500">{commissionHistoryData.length} records</span>
                                     </div>
                                     <div className="space-y-3 max-h-80 overflow-y-auto">
-                                        {commissionData.map((item, index) => (
-                                            <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                                <span className="font-medium text-gray-800">{item.month}</span>
-                                                <div className="flex items-center gap-3">
-                                                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                                                        item.status === 'Paid' 
-                                                            ? 'bg-green-100 text-green-800' 
-                                                            : 'bg-gray-100 text-gray-800'
-                                                    }`}> 
-                                                        {item.status}
-                                                    </span>
-                                                    <span className="font-semibold text-gray-800">MYR {item.amount}</span>
+                                        {commissionHistoryData.length > 0 ? (
+                                            commissionHistoryData.map((item, index) => (
+                                                <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg">
+                                                    <div>
+                                                        <span className="font-medium text-gray-800">
+                                                            {new Date(item.created_at).toLocaleDateString('en-US', { 
+                                                                month: 'long', 
+                                                                year: 'numeric' 
+                                                            })}
+                                                        </span>
+                                                        <div className="text-xs text-gray-500">
+                                                            {item.description || 'Commission Payment'}
+                                                        </div>
+                                                    </div>
+                                                    <div className="flex items-center md:justify-center">
+                                                        <span className="font-semibold text-gray-800">RM {parseFloat(item.amount || 0).toFixed(2)}</span>
+                                                    </div>
+                                                    <div className="flex items-center md:justify-end">
+                                                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                                            item.status === 'paid' || item.status === 'completed'
+                                                                ? 'bg-green-100 text-green-800' 
+                                                                : 'bg-gray-100 text-gray-800'
+                                                        }`}>
+                                                            {item.status || 'Pending'}
+                                                        </span>
+                                                    </div>
                                                 </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-center py-8 text-gray-500">
+                                                No commission history found
                                             </div>
-                                        ))}
+                                        )}
                                     </div>
                                 </div>
+                                    </>
+                                )}
                             </div>
                         )}
                     </div>
@@ -1645,194 +1731,332 @@ export default function ProfilePage() {
             const res = await apiService.getClientPayments(client.id);
             if (res.success && res.data) {
                 setClientPayments(res.data || []);
-            } else {
-                setClientPayments([]);
             }
-        } catch {
+        } catch (error) {
+            console.error('Error loading client payments:', error);
             setClientPayments([]);
         }
     };
 
     const handleDownloadClientCard = async (client: any) => {
         try {
-            const blob = await apiService.downloadClientCard(client.id);
+            const logoResp = await fetch('/logo.png');
+            const logoBlob = await logoResp.blob();
+            const logoDataUrl = await new Promise<string>((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result as string);
+                reader.readAsDataURL(logoBlob);
+            });
+
+            const fullName = client?.full_name || client?.name || 'Member';
+            const memberId = client?.id || '';
+            const plan = client?.plan_name || client?.plan || 'Medical Plan';
+            const nric = client?.nric || '-';
+            const issued = new Date().toLocaleDateString();
+
+            const svg = `<?xml version="1.0" encoding="UTF-8"?><svg width="860" height="540" viewBox="0 0 860 540" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g1" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#065f46"/><stop offset="100%" stop-color="#10b981"/></linearGradient><filter id="shadow" x="-20%" y="-20%" width="140%" height="140%"><feDropShadow dx="0" dy="12" stdDeviation="18" flood-color="#0f172a" flood-opacity="0.25"/></filter></defs><rect x="40" y="40" rx="28" ry="28" width="780" height="460" fill="url(#g1)" filter="url(#shadow)"/><rect x="58" y="58" rx="22" ry="22" width="744" height="424" fill="#ffffff" opacity="0.06"/><image href="${logoDataUrl}" x="72" y="70" width="120" height="120"/><text x="210" y="110" font-family="Inter, ui-sans-serif" font-size="26" fill="#ecfdf5" font-weight="600">WeKongsi Medical</text><text x="210" y="146" font-family="Inter, ui-sans-serif" font-size="16" fill="#d1fae5">Member Healthcare Access Card</text><rect x="72" y="212" width="716" height="2" fill="#34d399" opacity="0.7"/><text x="72" y="260" font-family="Inter, ui-sans-serif" font-size="18" fill="#a7f3d0">Full Name</text><text x="72" y="292" font-family="Inter, ui-sans-serif" font-size="28" fill="#ffffff" font-weight="700">${fullName}</text><text x="72" y="336" font-family="Inter, ui-sans-serif" font-size="18" fill="#a7f3d0">Plan</text><text x="72" y="366" font-family="Inter, ui-sans-serif" font-size="22" fill="#ecfeff" font-weight="600">${plan}</text><text x="460" y="260" font-family="Inter, ui-sans-serif" font-size="18" fill="#a7f3d0">NRIC</text><text x="460" y="292" font-family="Inter, ui-sans-serif" font-size="22" fill="#ffffff" font-weight="600">${nric}</text><text x="460" y="336" font-family="Inter, ui-sans-serif" font-size="18" fill="#a7f3d0">Member ID</text><text x="460" y="366" font-family="Inter, ui-sans-serif" font-size="22" fill="#ffffff" font-weight="600">#${memberId}</text><text x="72" y="420" font-family="Inter, ui-sans-serif" font-size="14" fill="#bbf7d0">Issued</text><text x="72" y="442" font-family="Inter, ui-sans-serif" font-size="16" fill="#ecfdf5">${issued}</text><text x="620" y="420" text-anchor="end" font-family="Inter, ui-sans-serif" font-size="12" fill="#a7f3d0">24/7 Support</text><text x="786" y="420" text-anchor="end" font-family="Inter, ui-sans-serif" font-size="12" fill="#a7f3d0">info@wekongsi.com</text></svg>`;
+
+            const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
             const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `medical-card-${client.full_name.replace(/[^A-Za-z0-9]/g, '')}.svg`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `medical-card-${memberId || 'member'}.svg`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
             window.URL.revokeObjectURL(url);
         } catch (e) {
-            alert('Failed to download card');
+            console.error('Download medical card failed', e);
+        }
+    };
+
+    const handlePrintPolicy = (policy: any) => {
+        // Implementation for printing policy
+        console.log('Print policy:', policy);
+        // You can implement actual print functionality here
+        window.print();
+    };
+
+    const handleViewUser = async (referralOrUser: any) => {
+        // Normalize to user object (direct referrals provide `agent`)
+        const normalizedUser = referralOrUser?.agent ? referralOrUser.agent : referralOrUser;
+        setSelectedUser(normalizedUser);
+        setShowViewUserModal(true);
+        setIsSelectedUserLoading(true);
+        try {
+            const downlinesRes = await apiService.getUserDownlines(normalizedUser.id, selectedUserLevelFilter, selectedUserDownlinesPage);
+            const summaryRes = await apiService.getCommissionSummary();
+            setSelectedUserDownlines(((downlinesRes as any)?.data?.data) || []);
+            setSelectedUserByLevelCounts(((downlinesRes as any)?.data?.by_level_counts) || null);
+            const s = (summaryRes as any)?.data || null;
+            setSelectedUserCommissionSummary(s ? { total: s.total_commission, current_month: s.monthly_commission, pending: s.pending_commission } : null);
+        } catch (e) {
+            setSelectedUserDownlines([]);
+            setSelectedUserByLevelCounts(null);
+            setSelectedUserCommissionSummary(null);
+        } finally {
+            setIsSelectedUserLoading(false);
+        }
+    };
+
+    const handleChangeSelectedUserLevel = async (level?: number) => {
+        if (!selectedUser) return;
+        setSelectedUserLevelFilter(level);
+        setSelectedUserDownlinesPage(1);
+        setIsSelectedUserLoading(true);
+        try {
+            const downlinesRes = await apiService.getUserDownlines(selectedUser.id, level, 1);
+            setSelectedUserDownlines(((downlinesRes as any)?.data?.data) || []);
+            setSelectedUserByLevelCounts(((downlinesRes as any)?.data?.by_level_counts) || null);
+        } catch (e) {
+            setSelectedUserDownlines([]);
+            setSelectedUserByLevelCounts(null);
+        } finally {
+            setIsSelectedUserLoading(false);
+        }
+    };
+
+    const loadClients = async () => {
+        setIsLoading(true);
+        try {
+            const res = await apiService.getClients(1);
+            if (res.success && res.data) {
+                setClients((res.data as any).data || []);
+            } else {
+                setError(res.message || 'Failed to load clients');
+            }
+        } catch (e) {
+            setError(e instanceof Error ? e.message : 'Failed to load clients');
+        } finally {
+            setIsLoading(false);
         }
 	};
 
 	return (
-        <>
-            <AnimatePresence>
-                {showReceiptModal && selectedPayment && (
+        <PageTransition>
+            <div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
+                <div className="w-full max-w-6xl xl:max-w-7xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
+                    {/* Enhanced Logout Button */}
                     <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+                        initial={{ opacity: 0, y: -20, scale: 0.9 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ duration: 0.5, delay: 0.2 }}
+                        className="absolute top-2 sm:top-3 md:top-4 right-2 sm:right-3 md:right-6 z-[100]"
                     >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-                        >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 bg-blue-500 rounded-full flex items-center justify-center">
-                                        <span className="text-white font-bold text-lg">W</span>
-                                    </div>
-                                    <div>
-                                        <div className="font-bold text-gray-800">WE KONGSI</div>
-                                        <div className="text-sm text-gray-600">Kita Kongsi Sdn Bhd (1492373D)</div>
-                                    </div>
-                                </div>
 					<button
-                                    onClick={() => setShowReceiptModal(false)}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-					>
-                                    <X className="w-5 h-5 text-gray-600" />
-					</button>
-				</div>
-
-                            <div className="p-6 space-y-6">
-                                <h2 className="text-2xl font-bold text-center text-gray-800">OFFICIAL RECEIPT</h2>
-                                
-                                <div className="space-y-4">
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Date:</span>
-                                        <span className="font-semibold">10/08/2025 03:00:52</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Payer Name:</span>
-                                        <span className="font-semibold">NOR ZAKIAH BINTI WAN OMAR</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">The Sum of Ringgit (RM):</span>
-                                        <span className="font-semibold">{selectedPayment.amount}</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">In Payment Of:</span>
-                                        <span className="font-semibold">Membership Fee</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Order Number:</span>
-                                        <span className="font-semibold">pa_20250810_xfffxt</span>
-                                    </div>
-                                    <div className="flex justify-between">
-                                        <span className="text-gray-600">Payment Date:</span>
-                                        <span className="font-semibold">10/08/2025 03:00:52</span>
-                                    </div>
-                                </div>
-                                
-                                <div className="text-sm text-gray-500 text-center py-4 border-t border-gray-200">
-                                    NOTE: This receipt is computer generated and no signature is required.
-                                </div>
-                                
-                                <div className="text-xs text-gray-600 space-y-1">
-                                    <p>Kita Kongsi Sdn Bhd [202201046676 (1492373-D)]</p>
-                                    <p>C/O WeWork Level 18, Equatorial Plaza, Jalan Sultan Ismail, 50250 Kuala Lumpur, Malaysia.</p>
-                                    <p>info@wekongsi.com</p>
-                                    <p>+60 11-5671 3670</p>
-                                </div>
-                            </div>
-                            
-                            <div className="p-6 border-t border-gray-200">
-                                <div className="flex gap-3">
-                                    <button className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors">
-                                        <Download className="w-4 h-4" />
-                                        Download PDF
-                                    </button>
-                                    <button className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors">
-                                        <Printer className="w-4 h-4" />
-                                        Print
-                                    </button>
-						</div>
-					</div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            <AnimatePresence>
-                {showUpdateProfileModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+                            onClick={() => setShowLogoutConfirmModal(true)}
+                            aria-label="Logout"
+                            title="Logout"
+                            className="grid place-content-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-red-500 hover:bg-red-600 text-white border border-red-400 transition-colors duration-200 shadow-md hover:shadow-lg"
                         >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <h2 className="text-xl font-bold text-gray-800">Update Profile</h2>
+                            <LogOut size={16} />
+					</button>
+                        </motion.div>
+
+                    {/* Main Content */}
+                    <div className="space-y-6">
+                        {/* Header */}
+                        <FadeIn delay={0.1}>
+                            <div className="text-center">
+                                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-800 mb-2">
+                                    Profile Dashboard
+                                </h1>
+                                            <p className="text-gray-600">
+                                    Manage your account, view policies, and track your performance
+                                </p>
+                                    </div>
+                        </FadeIn>
+
+                        {/* Tab Navigation */}
+                        <FadeIn delay={0.2}>
+                            <div className="flex flex-wrap gap-2 justify-center">
+                                {[
+                                    { id: 'overview', label: 'Overview', icon: BarChart3 },
+                                    { id: 'profile', label: 'Profile', icon: UserIcon },
+                                    { id: 'policy-view', label: 'Policies', icon: FileText },
+                                    { id: 'payment-history', label: 'Payments', icon: CreditCard },
+                                    { id: 'medical-insurance', label: 'Medical Insurance', icon: Heart },
+                                    { id: 'referrer', label: 'Referrer', icon: Users }
+                                ].map((tab) => {
+                                    const Icon = tab.icon;
+                                    return (
+					<button
+                                            key={tab.id}
+                                            onClick={() => setActiveTab(tab.id as TabType)}
+                                            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                                                activeTab === tab.id
+                                                    ? 'bg-emerald-600 text-white shadow-md'
+                                                    : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <Icon className="w-4 h-4" />
+                                            {tab.label}
+					</button>
+                                    );
+                                })}
+				</div>
+                        </FadeIn>
+
+                        {/* Tab Content */}
+                        <FadeIn delay={0.3}>
+                            <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
+                                {renderTabContent()}
+                                    </div>
+                        </FadeIn>
+                                    </div>
+                                    </div>
+                                    </div>
+                            
+            {/* Modals */}
+            <Modal open={showLogoutConfirmModal} onClose={() => setShowLogoutConfirmModal(false)} title="Confirm Logout">
+                <div className="space-y-4">
+                    <p className="text-gray-600">Are you sure you want to logout?</p>
+                    <div className="flex justify-end gap-3">
                                 <button
-                                    onClick={() => setShowUpdateProfileModal(false)}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    onClick={() => setShowLogoutConfirmModal(false)}
+                            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleLogout}
+                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
+                                    >
+                                        Logout
+                                    </button>
+                                    </div>
+                                    </div>
+            </Modal>
+
+            {/* Medical Insurance Registration Modal */}
+            <Modal open={showMedicalInsuranceModal} onClose={() => setShowMedicalInsuranceModal(false)} title="Medical Insurance Registration" maxWidth="max-w-6xl">
+            <MedicalInsuranceRegistrationForm
+                isOpen={showMedicalInsuranceModal}
+                onClose={() => setShowMedicalInsuranceModal(false)}
+                    onSuccess={() => {
+                        setShowMedicalInsuranceModal(false);
+                        // Refresh clients list
+                        loadClients();
+                    }}
+                />
+            </Modal>
+
+            {/* Bank Info Update Modal */}
+            <Modal open={showBankInfoModal} onClose={() => setShowBankInfoModal(false)} title="Update Bank Information" maxWidth="max-w-2xl">
+                <div className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Bank Name</label>
+                            <input
+                                type="text"
+                                value={bankInfoForm.bank_name}
+                                onChange={(e) => setBankInfoForm({...bankInfoForm, bank_name: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter bank name"
+                            />
+                                </div>
+								<div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Account Owner Name</label>
+                            <input
+                                type="text"
+                                value={bankInfoForm.bank_account_owner}
+                                onChange={(e) => setBankInfoForm({...bankInfoForm, bank_account_owner: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter account owner name"
+                            />
+                            </div>
+						</div>
+                                        <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Bank Account Number</label>
+                        <input
+                            type="text"
+                            value={bankInfoForm.bank_account_number}
+                            onChange={(e) => setBankInfoForm({...bankInfoForm, bank_account_number: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            placeholder="Enter bank account number"
+                        />
+					</div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Current Password</label>
+                        <input
+                            type="password"
+                            value={bankInfoForm.current_password}
+                            onChange={(e) => setBankInfoForm({...bankInfoForm, current_password: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            placeholder="Enter current password to confirm"
+                        />
+                        </div>
+                    </div>
+                    <div className="flex justify-end gap-3 pt-4">
+                                    <button 
+                            onClick={() => setShowBankInfoModal(false)}
+                            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                                    >
+                            Cancel
+                                    </button>
+                                <button
+                            onClick={handleBankInfoUpdate}
+                            className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                 >
-                                    <X className="w-5 h-5 text-gray-600" />
+                            Update Bank Info
                                 </button>
                             </div>
+                            </div>
+            </Modal>
                             
-                            <div className="p-6 space-y-6">
+            {/* Update Profile Modal */}
+            <Modal open={showUpdateProfileModal} onClose={() => setShowUpdateProfileModal(false)} title="Update Profile" maxWidth="max-w-2xl">
+                <div className="space-y-4">
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
                                         <input
                                             type="text"
                                             value={profileForm.name}
                                             onChange={(e) => setProfileForm({...profileForm, name: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter your name"
                                         />
                                     </div>
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
                                         <input
                                             type="email"
                                             value={profileForm.email}
                                             onChange={(e) => setProfileForm({...profileForm, email: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter your email"
                                         />
                                     </div>
                                     <div className="md:col-span-2">
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Street Address</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
                                         <input
                                             type="text"
                                             value={profileForm.streetAddress}
                                             onChange={(e) => setProfileForm({...profileForm, streetAddress: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter your street address"
                                         />
                                     </div>
 								<div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Postal Code</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Postal Code</label>
                                         <input
                                             type="text"
                                             value={profileForm.postalCode}
                                             onChange={(e) => setProfileForm({...profileForm, postalCode: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter postal code"
                                         />
 								</div>
 								<div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">State</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
                                         <select
                                             value={profileForm.state}
                                             onChange={(e) => setProfileForm({...profileForm, state: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                         >
+                                <option value="">Select State</option>
                                             <option value="Selangor">Selangor</option>
                                             <option value="Kuala Lumpur">Kuala Lumpur</option>
                                             <option value="Johor">Johor</option>
@@ -1850,33 +2074,31 @@ export default function ProfilePage() {
                                         </select>
 								</div>
 								<div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">City</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
                                         <input
                                             type="text"
                                             value={profileForm.city}
                                             onChange={(e) => setProfileForm({...profileForm, city: e.target.value})}
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                                placeholder="Enter your city"
                                         />
                                     </div>
                                     <div className="md:col-span-2">
-                                        <label className="block text-sm font-medium text-gray-700 mb-2">Account Password</label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Account Password</label>
                                         <input
                                             type="password"
                                             value={profileForm.accountPassword}
                                             onChange={(e) => setProfileForm({...profileForm, accountPassword: e.target.value})}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                             placeholder="Enter your account password"
-                                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
                                         />
                                         <p className="text-sm text-gray-500 mt-1">Please enter your account password to update profile</p>
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div className="p-6 border-t border-gray-200">
-                                <div className="flex gap-3 justify-end">
+                    <div className="flex justify-end gap-3 pt-4">
                                     <button
                                         onClick={() => setShowUpdateProfileModal(false)}
-                                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                                     >
                                         Cancel
                                     </button>
@@ -1884,145 +2106,98 @@ export default function ProfilePage() {
                                         onClick={handleSubmitUpdateProfile}
                                         className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                     >
-                                        Update
+                            Update Profile
                                     </button>
                                 </div>
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            </Modal>
 
-            <AnimatePresence>
-                {showChangePhoneModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
-                        >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <div className="flex items-center gap-3">
-                                    {phoneChangeStep !== 'initial' && (
-                                        <button
-                                            onClick={handlePhoneBack}
-                                            className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                        >
-                                            <ArrowLeft className="w-5 h-5 text-gray-600" />
-                                        </button>
-                                    )}
-                                    <h2 className="text-xl font-bold text-gray-800">
-                                        {phoneChangeStep === 'initial' && 'Change Phone Number'}
-                                        {phoneChangeStep === 'tac-verification' && 'TAC Verification'}
-                                        {phoneChangeStep === 'new-phone' && 'Enter New Phone Number'}
-                                        {phoneChangeStep === 'new-tac-verification' && 'Verify New Phone Number'}
-                                        {phoneChangeStep === 'success' && 'Phone Number Changed Successfully'}
-                                    </h2>
-                                </div>
-                                <button
-                                    onClick={() => {
+            {/* Change Phone Modal */}
+            <Modal open={showChangePhoneModal} onClose={() => {
                                         setShowChangePhoneModal(false);
                                         resetPhoneChange();
-                                    }}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <X className="w-5 h-5 text-gray-600" />
-                                </button>
-                            </div>
-                            
-                            <div className="p-6">
+            }} title="Change Email" maxWidth="max-w-2xl">
+                <div className="space-y-6">
                                 {phoneChangeStep === 'initial' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex-1 flex justify-center">
-                                            <div className="relative">
-                                                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <Shield className="w-12 h-12 text-emerald-600" />
+                        <div className="text-center space-y-4">
+                            <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                                <Mail className="w-8 h-8 text-emerald-600" />
                                                 </div>
-                                                <div className="absolute inset-0 w-24 h-24 bg-emerald-100 rounded-full opacity-20 animate-pulse"></div>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 space-y-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Change Phone Number</h3>
-                                            <p className="text-gray-600">
-                                                To change your phone number, first verify your current phone number. Click Continue to have the TAC code sent to your registered phone number.
+                            <div>
+                                            <h3 className="text-lg font-semibold text-gray-800">Change Email</h3>
+                                <p className="text-gray-600 mt-2">
+                                                To change your email, first verify your current email. Click Continue to have the verification code sent to your registered email.
                                             </p>
+                            </div>
                                             <button
                                                 onClick={handlePhoneContinue}
                                                 className="w-full px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
                                             >
                                                 Continue
                                             </button>
-                                        </div>
                                     </div>
                                 )}
 
                                 {phoneChangeStep === 'tac-verification' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex-1 flex justify-center">
-                                            <div className="relative">
-                                                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <Shield className="w-12 h-12 text-emerald-600" />
+                        <div className="space-y-4">
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                                    <Shield className="w-8 h-8 text-emerald-600" />
                                                 </div>
-                                                <div className="absolute inset-0 w-24 h-24 bg-emerald-100 rounded-full opacity-20 animate-pulse"></div>
+                                <h3 className="text-lg font-semibold text-gray-800 mt-4">Email Verification</h3>
+                                <p className="text-gray-600 mt-2">Enter the verification code sent to your current email.</p>
                                             </div>
-                                        </div>
-                                        <div className="flex-1 space-y-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">TAC Verification</h3>
-                                            <p className="text-gray-600">
-                                                Please enter the TAC sent to your registered phone to verify your phone number.
-                                            </p>
                                             <input
                                                 type="text"
                                                 value={tacCode}
                                                 onChange={(e) => setTacCode(e.target.value)}
-                                                placeholder="TAC"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                                            />
+                                placeholder="Enter verification code"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            />
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handlePhoneBack}
+                                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Back
+                                </button>
                                             <button
                                                 onClick={handlePhoneContinue}
-                                                className="w-full px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                             >
                                                 Continue
                                             </button>
+                            </div>
                                             <button className="w-full text-emerald-600 hover:text-emerald-700 text-sm">
                                                 Resend TAC
                                             </button>
-                                        </div>
                                     </div>
                                 )}
 
                                 {phoneChangeStep === 'new-phone' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex-1 flex justify-center">
-                                            <div className="relative">
-                                                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <Phone className="w-12 h-12 text-emerald-600" />
+                        <div className="space-y-4">
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto"><Mail className="w-8 h-8 text-emerald-600" /></div>
+                                <h3 className="text-lg font-semibold text-gray-800 mt-4">Enter New Email</h3>
+                                <p className="text-gray-600 mt-2">Enter your new email. We will send a code to verify it.</p>
                                                 </div>
-                                                <div className="absolute inset-0 w-24 h-24 bg-emerald-100 rounded-full opacity-20 animate-pulse"></div>
-                                            </div>
-                                        </div>
-                                        <div className="flex-1 space-y-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Enter New Phone Number</h3>
-                                            <p className="text-gray-600">
-                                                Please enter your new phone number. A TAC code will be sent to verify the new number.
-                                            </p>
                                             <input
-                                                type="tel"
+                                                type="email"
                                                 value={newPhoneNumber}
                                                 onChange={(e) => setNewPhoneNumber(e.target.value)}
-                                                placeholder="+60XXXXXXXXX"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                                            />
+                                                placeholder="your@email.com"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            />
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handlePhoneBack}
+                                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Back
+                                </button>
                                             <button
                                                 onClick={handlePhoneContinue}
-                                                className="w-full px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                             >
                                                 Continue
                                             </button>
@@ -2031,52 +2206,50 @@ export default function ProfilePage() {
                                 )}
 
                                 {phoneChangeStep === 'new-tac-verification' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex-1 flex justify-center">
-                                            <div className="relative">
-                                                <div className="w-24 h-24 bg-gray-100 rounded-full flex items-center justify-center">
-                                                    <Shield className="w-12 h-12 text-emerald-600" />
+                        <div className="space-y-4">
+                            <div className="text-center">
+                                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto">
+                                    <Shield className="w-8 h-8 text-emerald-600" />
                                                 </div>
-                                                <div className="absolute inset-0 w-24 h-24 bg-emerald-100 rounded-full opacity-20 animate-pulse"></div>
+                                <h3 className="text-lg font-semibold text-gray-800 mt-4">Verify New Email</h3>
+                                <p className="text-gray-600 mt-2">Enter the code sent to your new email to finish.</p>
                                             </div>
-                                        </div>
-                                        <div className="flex-1 space-y-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Verify New Phone Number</h3>
-                                            <p className="text-gray-600">
-                                                Please enter the TAC sent to your new phone number to complete the verification.
-                                            </p>
                                             <input
                                                 type="text"
                                                 value={newTacCode}
                                                 onChange={(e) => setNewTacCode(e.target.value)}
-                                                placeholder="TAC"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
-                                            />
+                                placeholder="Enter verification code"
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
+                            />
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={handlePhoneBack}
+                                    className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                                >
+                                    Back
+                                </button>
                                             <button
                                                 onClick={handlePhoneContinue}
-                                                className="w-full px-6 py-3 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors font-medium"
+                                    className="flex-1 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                             >
                                                 Continue
                                             </button>
+                            </div>
                                             <button className="w-full text-emerald-600 hover:text-emerald-700 text-sm">
                                                 Resend TAC
                                             </button>
-                                        </div>
                                     </div>
                                 )}
 
                                 {phoneChangeStep === 'success' && (
-                                    <div className="flex items-center gap-6">
-                                        <div className="flex-1 flex justify-center">
-                                            <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center">
-                                                <CheckCircle className="w-12 h-12 text-green-600" />
+                        <div className="text-center space-y-4">
+                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
+                                <CheckCircle className="w-8 h-8 text-green-600" />
                                             </div>
+                            <div>
+                                <h3 className="text-lg font-semibold text-gray-800">Email Updated</h3>
+                                <p className="text-gray-600 mt-2">Your email has been updated and verified successfully.</p>
                                         </div>
-                                        <div className="flex-1 space-y-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Phone Number Changed Successfully!</h3>
-                                            <p className="text-gray-600">
-                                                Your phone number has been updated successfully. You can now use your new phone number for future verifications.
-                                            </p>
                                             <button
                                                 onClick={() => {
                                                     setShowChangePhoneModal(false);
@@ -2086,11 +2259,11 @@ export default function ProfilePage() {
                                             >
                                                 Done
                                             </button>
-                                        </div>
                                     </div>
                                 )}
 
-                                <div className="flex justify-center mt-8">
+                    {/* Progress indicators */}
+                    <div className="flex justify-center">
                                     <div className="flex gap-2">
                                         {['initial', 'tac-verification', 'new-phone', 'new-tac-verification', 'success'].map((step, index) => (
                                             <div
@@ -2107,65 +2280,39 @@ export default function ProfilePage() {
 								</div>
 							</div>
 						</div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            </Modal>
 
-            <AnimatePresence>
-                {showChangePasswordModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-                        >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <h2 className="text-xl font-bold text-gray-800">Change Password</h2>
-                                <button
-                                    onClick={() => setShowChangePasswordModal(false)}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <X className="w-5 h-5 text-gray-600" />
-                                </button>
-                            </div>
-                            
-                            <div className="p-6 space-y-4">
+            {/* Change Password Modal */}
+            <Modal open={showChangePasswordModal} onClose={() => setShowChangePasswordModal(false)} title="Change Password" maxWidth="max-w-md">
+                <div className="space-y-4">
 								<div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Old Password</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Old Password</label>
                                     <input
                                         type="password"
                                         value={oldPassword}
                                         onChange={(e) => setOldPassword(e.target.value)}
-                                        placeholder="Old Password"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                            placeholder="Enter your old password"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                     />
 								</div>
 								<div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">New Password</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">New Password</label>
                                     <input
                                         type="password"
                                         value={newPassword}
                                         onChange={(e) => setNewPassword(e.target.value)}
-                                        placeholder="New Password"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                            placeholder="Enter your new password"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                     />
 								</div>
 								<div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Confirm New Password</label>
+                        <label className="block text-sm font-medium text-gray-700 mb-1">Confirm New Password</label>
                                     <input
                                         type="password"
                                         value={confirmPassword}
                                         onChange={(e) => setConfirmPassword(e.target.value)}
-                                        placeholder="Confirm New Password"
-                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-transparent"
+                            placeholder="Confirm your new password"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                     />
                                 </div>
                                 {passwordError && (
@@ -2173,13 +2320,10 @@ export default function ProfilePage() {
                                         <p className="text-red-800 text-sm">{passwordError}</p>
                                     </div>
                                 )}
-                            </div>
-                            
-                            <div className="p-6 border-t border-gray-200">
-                                <div className="flex gap-3 justify-end">
+                    <div className="flex justify-end gap-3 pt-4">
                                     <button
                                         onClick={() => setShowChangePasswordModal(false)}
-                                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+                            className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
                                     >
                                         Cancel
                                     </button>
@@ -2187,467 +2331,288 @@ export default function ProfilePage() {
                                         onClick={handlePasswordUpdate}
                                         className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
                                     >
-                                        Update
+                            Change Password
                                     </button>
                                 </div>
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            </Modal>
 
-            <AnimatePresence>
-                {showLogoutConfirmModal && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto"
-                        >
-                            <div className="flex items-center justify-between p-6 border-b border-gray-200">
-                                <h2 className="text-xl font-bold text-gray-800">Confirm Logout</h2>
-                                <button
-                                    onClick={() => setShowLogoutConfirmModal(false)}
-                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                                >
-                                    <X className="w-5 h-5 text-gray-600" />
-                                </button>
+            {/* View Policy Modal */}
+            <Modal open={showPolicyModal} onClose={() => setShowPolicyModal(false)} title="Policy Details" maxWidth="max-w-4xl">
+                {selectedPolicy && (
+                    <div className="space-y-6">
+                        <div className={`bg-gradient-to-r ${selectedPolicy.gradient || 'from-emerald-500 to-emerald-600'} rounded-lg p-6 text-white`}>
+                            <h3 className="text-2xl font-bold mb-2">{selectedPolicy.planName}</h3>
+                            <p className="text-emerald-100">{selectedPolicy.description}</p>
                             </div>
                             
-                            <div className="p-6 space-y-4">
-                                <p className="text-gray-600">Are you sure you want to log out?</p>
-                                <div className="flex gap-3 justify-end">
-                                    <button
-                                        onClick={() => setShowLogoutConfirmModal(false)}
-                                        className="px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleLogout}
-                                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors"
-                                    >
-                                        Logout
-                                    </button>
-                                </div>
-                            </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
-
-            <MedicalInsuranceRegistrationForm
-                isOpen={showMedicalInsuranceModal}
-                onClose={() => setShowMedicalInsuranceModal(false)}
-                onSuccess={handleMedicalInsuranceSuccess}
-            />
-
-            {/* Policy Details Modal */}
-            <AnimatePresence>
-                {showPolicyModal && selectedPolicy && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0 }}
-                            animate={{ scale: 1, opacity: 1 }}
-                            exit={{ scale: 0.9, opacity: 0 }}
-                            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden"
-                        >
-                            {/* Modal Header */}
-                            <div className={`bg-gradient-to-r ${selectedPolicy.color} p-6 text-white`}>
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <Shield className="w-8 h-8" />
-                                        <div>
-                                            <h2 className="text-2xl font-bold">{selectedPolicy.name}</h2>
-                                            <p className="text-white/90">{selectedPolicy.type}</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setShowPolicyModal(false)}
-                                        className="text-white/80 hover:text-white transition-colors"
-                                    >
-                                        <X className="w-6 h-6" />
-                                    </button>
-                                </div>
-                            </div>
-
-                            {/* Modal Content */}
-                            <div className="p-6 max-h-[70vh] overflow-y-auto">
-                                {/* Key Details */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                     <div className="space-y-4">
-                                        <div className="bg-gray-50 rounded-lg p-4">
-                                            <h3 className="font-semibold text-gray-800 mb-3">Coverage Details</h3>
-                                            <div className="space-y-2">
+                                <h4 className="text-lg font-semibold text-gray-800">Plan Information</h4>
+                                <div className="space-y-3">
                                                 <div className="flex justify-between">
-                                                    <span className="text-gray-600">Annual Limit</span>
-                                                    <span className="font-medium">{selectedPolicy.details.annualLimit}</span>
+                                        <span className="text-gray-600">Plan Type:</span>
+                                        <span className="font-semibold">{selectedPolicy.type}</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-gray-600">Room & Board</span>
-                                                    <span className="font-medium">{selectedPolicy.details.roomBoard}</span>
+                                        <span className="text-gray-600">Premium:</span>
+                                        <span className="font-semibold">{selectedPolicy.premium}</span>
                                                 </div>
                                                 <div className="flex justify-between">
-                                                    <span className="text-gray-600">Panel Hospitals</span>
-                                                    <span className="font-medium">{selectedPolicy.details.panelHospitals}</span>
+                                        <span className="text-gray-600">Coverage Period:</span>
+                                        <span className="font-semibold">{selectedPolicy.coveragePeriod}</span>
                                                 </div>
-                                                {selectedPolicy.details.panelClinics && (
                                                     <div className="flex justify-between">
-                                                        <span className="text-gray-600">Panel Clinics</span>
-                                                        <span className="font-medium">{selectedPolicy.details.panelClinics}</span>
-                                                    </div>
-                                                )}
+                                        <span className="text-gray-600">Status:</span>
+                                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                                            selectedPolicy.status === 'Active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                                        }`}>
+                                            {selectedPolicy.status}
+                                        </span>
                                             </div>
                                         </div>
                                     </div>
 
                                     <div className="space-y-4">
+                                <h4 className="text-lg font-semibold text-gray-800">Benefits Summary</h4>
                                         <div className="bg-gray-50 rounded-lg p-4">
-                                            <h3 className="font-semibold text-gray-800 mb-3">Plan Information</h3>
-                                            <div className="space-y-2">
-                                                <div className="flex justify-between">
-                                                    <span className="text-gray-600">TPA</span>
-                                                    <span className="font-medium text-sm">{selectedPolicy.details.tpa}</span>
+                                    <div className="space-y-2 text-sm">
+                                        {selectedPolicy.benefits.map((benefit: any, index: number) => (
+                                            <div key={index} className="flex justify-between">
+                                                <span className="text-gray-600">{benefit.name}:</span>
+                                                <span className="font-semibold">{benefit.amount}</span>
                                                 </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-gray-600">Age Eligibility</span>
-                                                    <span className="font-medium text-sm">{selectedPolicy.details.ageEligibility}</span>
-                                                </div>
-                                                <div className="flex justify-between">
-                                                    <span className="text-gray-600">Waiting Period</span>
-                                                    <span className="font-medium text-sm">{selectedPolicy.details.waitingPeriod}</span>
-                                                </div>
+                                        ))}
                                             </div>
                                         </div>
                                     </div>
                                 </div>
 
-                                {/* Pricing (if available) */}
-                                {selectedPolicy.details.pricing && (
-                                    <div className="mb-8">
-                                        <h3 className="font-semibold text-gray-800 mb-4">Pricing Options</h3>
-                                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                            {Object.entries(selectedPolicy.details.pricing).map(([frequency, price]) => (
-                                                <div key={frequency} className="bg-gray-50 rounded-lg p-4 text-center">
-                                                    <div className="text-sm text-gray-600 capitalize mb-1">{frequency}</div>
-                                                    <div className="font-semibold text-gray-800">{String(price)}</div>
-                                                </div>
-                                            ))}
+                        <div className="space-y-4">
+                            <h4 className="text-lg font-semibold text-gray-800">Detailed Benefits</h4>
+                            <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                <table className="w-full">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Benefit</th>
+                                            <th className="px-4 py-3 text-left text-sm font-medium text-gray-700">Amount (RM)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-200">
+                                        {selectedPolicy.detailedBenefits.map((benefit: any, index: number) => (
+                                            <tr key={index}>
+                                                <td className="px-4 py-3 text-sm text-gray-800">{benefit.name}</td>
+                                                <td className="px-4 py-3 text-sm font-semibold text-gray-800">{benefit.amount}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
                                         </div>
                                     </div>
-                                )}
 
-                                {/* Benefits */}
-                                <div className="mb-8">
-                                    <h3 className="font-semibold text-gray-800 mb-4">Benefits & Coverage</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                                        {selectedPolicy.details.benefits.map((benefit: string, index: number) => (
-                                            <div key={index} className="flex items-start gap-2">
-                                                <CheckCircle className="w-4 h-4 text-green-500 mt-0.5 flex-shrink-0" />
-                                                <span className="text-sm text-gray-700">{benefit}</span>
-                                            </div>
-                                        ))}
-                                    </div>
+                        <div className="space-y-4">
+                            <h4 className="text-lg font-semibold text-gray-800">Terms & Conditions</h4>
+                            <div className="bg-gray-50 rounded-lg p-4">
+                                <ul className="space-y-2 text-sm text-gray-700">
+                                    {selectedPolicy.terms.map((term: string, index: number) => (
+                                        <li key={index} className="flex items-start">
+                                            <span className="text-emerald-600 mr-2">•</span>
+                                            <span>{term}</span>
+                                        </li>
+                                    ))}
+                                </ul>
                                 </div>
                             </div>
 
-                            {/* Modal Footer */}
-                            <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                        <div className="flex justify-end gap-3 pt-4">
+                            <a href="https://kh-berhad.com/medical-card/" target="_blank" rel="noopener noreferrer" className="px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors">Open Policy Docs</a>
+                            <button 
+                                onClick={() => handlePrintPolicy(selectedPolicy)}
+                                className={`px-4 py-2 text-white rounded-lg transition-colors flex items-center gap-2 ${selectedPolicy.gradient ? 'bg-gradient-to-r ' + selectedPolicy.gradient : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                            >
+                                <Printer className="w-4 h-4" />
+                                Print Policy
+                            </button>
+                            <button
+                                onClick={() => setShowPolicyModal(false)}
+                                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* Receipt Modal (Payments) */}
+            <Modal open={showReceiptModal && !!selectedPayment} onClose={() => setShowReceiptModal(false)} title="Official Receipt" maxWidth="max-w-lg">
+                {selectedPayment && (
+                    <div className="space-y-4">
+                                <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-10 h-10 bg-blue-600 rounded-full grid place-content-center text-white font-bold">W</div>
+                                        <div>
+                                    <div className="font-semibold text-gray-800">WE KONGSI</div>
+                                    <div className="text-xs text-gray-600">Kita Kongsi Sdn Bhd (1492373-D)</div>
+                                        </div>
+                                    </div>
+                            <div className="text-sm text-gray-500">{selectedPayment.date}</div>
+                                </div>
+                        <div className="divide-y divide-gray-200 text-sm">
+                            <div className="flex justify-between py-2"><span className="text-gray-600">Description</span><span className="font-medium">{selectedPayment.description}</span></div>
+                            <div className="flex justify-between py-2"><span className="text-gray-600">Amount</span><span className="font-semibold">RM {selectedPayment.amount}</span></div>
+                            <div className="flex justify-between py-2"><span className="text-gray-600">Method</span><span className="font-medium">{selectedPayment.method}</span></div>
+                            <div className="flex justify-between py-2"><span className="text-gray-600">Status</span><span className="font-medium">{selectedPayment.status}</span></div>
+                                </div>
+                        <div className="flex gap-3 justify-end pt-2">
+                            <button onClick={() => window.print()} className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors">Download PDF</button>
+                            </div>
+                                        </div>
+                )}
+            </Modal>
+
+            {/* Client Details Modal (Medical Insurance) */}
+            <Modal open={showClientModal} onClose={() => setShowClientModal(false)} title="Client Details" maxWidth="max-w-3xl">
+                {selectedClient && (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <div className="text-sm text-gray-600">Full Name</div>
+                                <div className="font-semibold text-gray-800">{selectedClient.full_name}</div>
+                                        </div>
+                            <div>
+                                <div className="text-sm text-gray-600">NRIC</div>
+                                <div className="font-semibold text-gray-800">{selectedClient.nric || '-'}</div>
+                                        </div>
+                            <div>
+                                <div className="text-sm text-gray-600">Plan</div>
+                                <div className="font-semibold text-gray-800">{selectedClient.plan_name || selectedClient.plan || '-'}</div>
+                                        </div>
+                            <div>
+                                <div className="text-sm text-gray-600">Status</div>
+                                <div className="font-semibold text-gray-800">{selectedClient.status || '-'}</div>
+                                        </div>
+                                        </div>
+                        <div className="flex justify-end gap-3">
+                            <button onClick={() => handleDownloadClientCard(selectedClient)} className="px-4 py-2 bg-gray-100 text-gray-800 rounded-lg hover:bg-gray-200 transition-colors">Download Card</button>
+                                        </div>
+                                    </div>
+                )}
+            </Modal>
+
+            {/* View User Modal */}
+            <Modal open={showViewUserModal} onClose={() => setShowViewUserModal(false)} title="User Details" maxWidth="max-w-5xl">
+                {selectedUser && (
+                    <div className="space-y-6">
+                        <div className="bg-gradient-to-r from-blue-500 to-blue-600 rounded-lg p-6 text-white flex items-center justify-between">
+                            <div>
+                                <h3 className="text-2xl font-bold mb-1">{selectedUser.name}</h3>
+                                <div className="text-blue-100 text-sm">Agent Code: {selectedUser.agent_code || 'N/A'}</div>
+                            </div>
+                            <div className="flex gap-3">
+                                {[1,2,3,4,5].map((lvl) => (
+                                    <button
+                                        key={lvl}
+                                        onClick={() => handleChangeSelectedUserLevel(lvl)}
+                                        className={`px-3 py-1 rounded-full text-sm ${selectedUserLevelFilter === lvl ? 'bg-white text-blue-700' : 'bg-blue-600 text-blue-100 hover:bg-blue-500'}`}
+                                    >
+                                        L{lvl}
+                                    </button>
+                                ))}
                                 <button
-                                    onClick={() => setShowPolicyModal(false)}
-                                    className="px-6 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors"
+                                    onClick={() => handleChangeSelectedUserLevel(undefined)}
+                                    className={`px-3 py-1 rounded-full text-sm ${selectedUserLevelFilter === undefined ? 'bg-white text-blue-700' : 'bg-blue-600 text-blue-100 hover:bg-blue-500'}`}
                                 >
-                                    Close
+                                    All
                                 </button>
                             </div>
-                        </motion.div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+                        </div>
 
-            <PageTransition>
-                <div className="min-h-screen flex items-center justify-center p-2 sm:p-3 md:p-4 lg:p-6 bg-gradient-to-br from-blue-50/30 via-white to-emerald-50/30">
-                    <div className="w-full max-w-6xl xl:max-w-7xl green-gradient-border p-3 sm:p-4 md:p-6 lg:p-8 xl:p-10">
-                        {/* Enhanced Logout Button - Moved Higher and Better UI/UX */}
-                        <motion.div 
-                            initial={{ opacity: 0, y: -20, scale: 0.9 }}
-                            animate={{ opacity: 1, y: 0, scale: 1 }}
-                            transition={{ duration: 0.5, delay: 0.2 }}
-                            className="absolute top-2 sm:top-3 md:top-4 right-2 sm:right-3 md:right-6 z-[100]"
-                        >
-                            <button
-                                onClick={() => setShowLogoutConfirmModal(true)}
-                                aria-label="Logout"
-                                title="Logout"
-                                className="grid place-content-center w-9 h-9 sm:w-10 sm:h-10 rounded-full bg-red-500 hover:bg-red-600 text-white border border-red-400 transition-colors duration-200 shadow-md hover:shadow-lg"
-                            >
-                                <LogOut size={16} />
-                            </button>
-                        </motion.div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-[280px_1fr] lg:grid-cols-[300px_1fr] xl:grid-cols-[320px_1fr] gap-4 sm:gap-6 md:gap-8">
-                            <StaggeredContainer className="space-y-4">
-                                <StaggeredItem>
-                                    <div className="space-y-3">
-                                        <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-blue-700 rounded-full text-white grid place-content-center text-xl font-bold shadow-lg">
-                                            N
-								</div>
-								<div>
-                                            <div className="font-bold text-lg text-gray-800">{user?.name || '-'}</div>
-                                            <div className="text-gray-500 text-sm">{user?.phone_number || '-'}</div>
-								</div>
-							</div>
-                                </StaggeredItem>
-                                
-                                <StaggeredItem>
-                                    <nav className="space-y-2">
-                                        {navigationItems.map((item) => (
-                                            <div key={item.id}>
-                                                <button
-                                                    onClick={() => setActiveTab(item.id as TabType)}
-                                                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium transition-all duration-200 ${
-                                                        item.active
-                                                            ? 'bg-emerald-600 text-white shadow-md'
-                                                            : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                                                    }`}
-                                                >
-                                                    <item.icon size={18} />
-                                                    <span>{item.label}</span>
-                                                </button>
-						</div>
-                                        ))}
-                                    </nav>
-                                </StaggeredItem>
-                            </StaggeredContainer>
-
-                            <FadeIn delay={0.2}>
-                                <div className="bg-white rounded-lg border border-gray-200 p-4 sm:p-6 md:p-8">
-                                    <AnimatePresence mode="wait">
-                                        <motion.div
-                                            key={activeTab}
-                                            initial={{ opacity: 0, y: 20 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: -20 }}
-                                            transition={{ duration: 0.3 }}
-                                        >
-                                            {renderTabContent()}
-                                        </motion.div>
-                                    </AnimatePresence>
-						</div>
-                            </FadeIn>
-					</div>
-				</div>
-			</div>
-            </PageTransition>
-
-            {/* Enhanced Client Details Modal */}
-            <AnimatePresence>
-                {showClientModal && selectedClient && (
-                    <motion.div
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-4"
-                        onClick={() => setShowClientModal(false)}
-                    >
-                        <motion.div
-                            initial={{ scale: 0.9, opacity: 0, y: 20 }}
-                            animate={{ scale: 1, opacity: 1, y: 0 }}
-                            exit={{ scale: 0.9, opacity: 0, y: 20 }}
-                            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-                            className="bg-white rounded-3xl shadow-2xl max-w-4xl w-full max-h-[95vh] overflow-hidden"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            {/* Enhanced Header */}
-                            <div className="bg-gradient-to-r from-emerald-600 to-emerald-700 text-white p-6">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-16 h-16 bg-white/20 rounded-2xl flex items-center justify-center text-white font-bold text-2xl">
-                                            {selectedClient.full_name?.charAt(0) || 'C'}
-                                        </div>
-                                        <div>
-                                            <h2 className="text-2xl font-bold">{selectedClient.full_name}</h2>
-                                            <p className="text-emerald-100 text-sm">Client ID: {selectedClient.id}</p>
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                            <div className="lg:col-span-2 space-y-6">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    <div className="bg-white border border-gray-200 rounded-lg p-5">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-3">Personal Information</h4>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between"><span className="text-gray-600">Email</span><span className="font-medium">{selectedUser.email || '-'}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">Phone</span><span className="font-medium">{selectedUser.phone_number || '-'}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">NRIC</span><span className="font-medium">{selectedUser.nric || '-'}</span></div>
                                         </div>
                                     </div>
-                                    <button 
-                                        onClick={() => setShowClientModal(false)} 
-                                        className="p-3 hover:bg-white/20 rounded-xl transition-colors"
-                                    >
-                                        <X className="w-6 h-6" />
-                                    </button>
-                                </div>
-                                
-                                {/* Status Badge */}
-                                <div className="mt-4">
-                                    <span className={`inline-flex items-center px-4 py-2 rounded-full text-sm font-medium ${
-                                        selectedClient.status === 'active' 
-                                            ? 'bg-green-500 text-white' 
-                                            : 'bg-gray-500 text-white'
-                                    }`}>
-                                        <div className={`w-2 h-2 rounded-full mr-2 ${
-                                            selectedClient.status === 'active' ? 'bg-white' : 'bg-gray-300'
-                                        }`}></div>
-                                        {selectedClient.status?.toUpperCase()}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {/* Enhanced Content */}
-                            <div className="p-6 overflow-y-auto max-h-[calc(95vh-200px)]">
-                                {/* Personal Information Section */}
-                                <div className="mb-8">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center">
-                                            <UserIcon className="w-4 h-4 text-blue-600" />
+                                    <div className="bg-white border border-gray-200 rounded-lg p-5">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-3">Account</h4>
+                                        <div className="space-y-2 text-sm">
+                                            <div className="flex justify-between"><span className="text-gray-600">Status</span><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${selectedUser.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{selectedUser.status || 'Active'}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">Level</span><span className="font-medium">{selectedUser.mlm_level || 0}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">Join Date</span><span className="font-medium">{selectedUser.created_at ? new Date(selectedUser.created_at).toLocaleDateString() : 'N/A'}</span></div>
                                         </div>
-                                        <h3 className="text-lg font-semibold text-gray-800">Personal Information</h3>
                                     </div>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">Full Name</div>
-                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.full_name}</div>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">NRIC Number</div>
-                                            <div className="font-semibold text-gray-800 text-sm font-mono">{selectedClient.nric}</div>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">Phone Number</div>
-                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.phone_number}</div>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">Email Address</div>
-                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.email || 'Not provided'}</div>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">Date of Birth</div>
-                                            <div className="font-semibold text-gray-800 text-sm">{selectedClient.date_of_birth || 'Not provided'}</div>
-                                        </div>
-                                        <div className="bg-gray-50 rounded-xl p-4">
-                                            <div className="text-xs text-gray-500 mb-1">Gender</div>
-                                            <div className="font-semibold text-gray-800 text-sm capitalize">{selectedClient.gender || 'Not specified'}</div>
-                                        </div>
+                                    <div className="md:col-span-2 bg-white border border-gray-200 rounded-lg p-5">
+                                        <h4 className="text-base font-semibold text-gray-800 mb-3">Address</h4>
+                                        <div className="text-sm text-gray-700">{selectedUser.address || 'No address provided'}</div>
+                                        {(selectedUser.city || selectedUser.state || selectedUser.postal_code) && (
+                                            <div className="mt-1 text-sm text-gray-600">{[selectedUser.city, selectedUser.state].filter(Boolean).join(', ')} {selectedUser.postal_code || ''}</div>
+                                        )}
                                     </div>
                                 </div>
 
-                                {/* Insurance Information Section */}
-                                <div className="mb-8">
-                                    <div className="flex items-center gap-2 mb-4">
-                                        <div className="w-8 h-8 bg-emerald-100 rounded-lg flex items-center justify-center">
-                                            <Shield className="w-4 h-4 text-emerald-600" />
-                                        </div>
-                                        <h3 className="text-lg font-semibold text-gray-800">Insurance Information</h3>
-                                    </div>
-                                    
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                        <div className="bg-emerald-50 rounded-xl p-4 border border-emerald-200">
-                                            <div className="text-xs text-emerald-600 mb-1">Insurance Plan</div>
-                                            <div className="font-bold text-emerald-800 text-lg">{selectedClient.plan_name}</div>
-                                            <div className="text-sm text-emerald-700 mt-1">Payment Mode: {selectedClient.payment_mode}</div>
-                                        </div>
-                                        <div className="bg-blue-50 rounded-xl p-4 border border-blue-200">
-                                            <div className="text-xs text-blue-600 mb-1">Medical Card Type</div>
-                                            <div className="font-bold text-blue-800 text-lg">{selectedClient.medical_card_type}</div>
-                                            <div className="text-sm text-blue-700 mt-1">Card Status: Active</div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Payment History Section */}
-                                <div className="mb-6">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <div className="flex items-center gap-2">
-                                            <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center">
-                                                <DollarSign className="w-4 h-4 text-green-600" />
+                                <div className="bg-white border border-gray-200 rounded-lg p-5">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <h4 className="text-base font-semibold text-gray-800">Downlines {selectedUserLevelFilter ? `(Level ${selectedUserLevelFilter})` : ''}</h4>
+                                        {selectedUserByLevelCounts && (
+                                            <div className="flex gap-2 text-xs text-gray-600">
+                                                {Object.entries(selectedUserByLevelCounts).map(([lvl, count]) => (
+                                                    <div key={lvl} className="px-2 py-0.5 bg-gray-100 rounded-full">L{lvl}: {count}</div>
+                                                ))}
                                             </div>
-                                            <h3 className="text-lg font-semibold text-gray-800">Payment History</h3>
-                                        </div>
-                                        <div className="text-sm text-gray-500">
-                                            {clientPayments.length} payment{clientPayments.length !== 1 ? 's' : ''}
-                                        </div>
+                                        )}
                                     </div>
-                                    
-                                    {clientPayments.length === 0 ? (
-                                        <div className="bg-gray-50 rounded-xl p-8 text-center">
-                                            <DollarSign className="w-12 h-12 text-gray-300 mx-auto mb-3" />
-                                            <h4 className="text-lg font-semibold text-gray-600 mb-2">No Payments Found</h4>
-                                            <p className="text-sm text-gray-500">This client hasn't made any payments yet.</p>
-                                        </div>
+                                    {isSelectedUserLoading ? (
+                                        <div className="flex items-center justify-center py-10 text-gray-500 text-sm">Loading downlines...</div>
+                                    ) : selectedUserDownlines.length === 0 ? (
+                                        <div className="text-center py-10 text-gray-500 text-sm">No downlines found</div>
                                     ) : (
-                                        <div className="space-y-3">
-                                            {clientPayments.map((payment, index) => (
-                                                <div key={index} className="bg-white border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all duration-200">
-                                                    <div className="flex items-center justify-between">
-                                                        <div className="flex-1">
-                                                            <div className="flex items-center gap-3 mb-2">
-                                                                <div className={`w-3 h-3 rounded-full ${
-                                                                    payment.status === 'completed' ? 'bg-green-500' : 
-                                                                    payment.status === 'pending' ? 'bg-yellow-500' : 'bg-red-500'
-                                                                }`}></div>
-                                                                <h4 className="font-semibold text-gray-800">{payment.description || 'Payment'}</h4>
-                                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                                                    payment.status === 'completed' ? 'bg-green-100 text-green-800' :
-                                                                    payment.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
-                                                                }`}>
-                                                                    {payment.status?.toUpperCase()}
-                                                                </span>
-                                                            </div>
-                                                            <div className="text-sm text-gray-600">
-                                                                {new Date(payment.completed_at || payment.created_at).toLocaleDateString('en-MY', {
-                                                                    year: 'numeric',
-                                                                    month: 'long',
-                                                                    day: 'numeric',
-                                                                    hour: '2-digit',
-                                                                    minute: '2-digit'
-                                                                })}
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <div className="text-xl font-bold text-gray-800">RM {Number(payment.amount).toFixed(2)}</div>
-                                                            <div className="text-xs text-gray-500">Amount</div>
-                                                        </div>
+                                        <div className="space-y-2 max-h-72 overflow-y-auto">
+                                            {selectedUserDownlines.map((d: any, idx: number) => (
+                                                <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                    <div>
+                                                        <div className="font-medium text-gray-800">{d.agent?.name || '-'}</div>
+                                                        <div className="text-xs text-gray-500">{d.agent?.agent_code || d.agent_code || '-'}</div>
                                                     </div>
+                                                    <div className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 capitalize">{d.status || '-'}</div>
                                                 </div>
                                             ))}
                                         </div>
                                     )}
                                 </div>
-
-                                {/* Action Buttons */}
-                                <div className="flex gap-3 pt-4 border-t border-gray-200">
-                                    <button 
-                                        onClick={() => handleDownloadClientCard(selectedClient)}
-                                        className="flex-1 bg-emerald-600 text-white py-3 px-4 rounded-xl hover:bg-emerald-700 transition-colors font-medium flex items-center justify-center gap-2"
-                                    >
-                                        <Download className="w-4 h-4" />
-                                        Download Client Card
-                                    </button>
-                                    <button 
-                                        onClick={() => setShowClientModal(false)}
-                                        className="px-6 py-3 border border-gray-300 text-gray-700 rounded-xl hover:bg-gray-50 transition-colors font-medium"
-                                    >
-                                        Close
-                                    </button>
+                            </div>
+                            <div className="space-y-6">
+                                <div className="bg-white border border-gray-200 rounded-lg p-5">
+                                    <h4 className="text-base font-semibold text-gray-800 mb-2">Commission Summary</h4>
+                                    {selectedUserCommissionSummary ? (
+                                        <div className="text-sm space-y-2">
+                                            <div className="flex justify-between"><span className="text-gray-600">Total</span><span className="font-semibold">RM {selectedUserCommissionSummary.total}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">Current Month</span><span className="font-semibold">RM {selectedUserCommissionSummary.current_month}</span></div>
+                                            <div className="flex justify-between"><span className="text-gray-600">Pending</span><span className="font-semibold">RM {selectedUserCommissionSummary.pending}</span></div>
+                                        </div>
+                                    ) : (
+                                        <div className="text-sm text-gray-500">No commission data</div>
+                                    )}
                                 </div>
                             </div>
-                        </motion.div>
-                    </motion.div>
+                        </div>
+
+                        <div className="flex justify-end">
+                            <button 
+                                onClick={() => setShowViewUserModal(false)}
+                                className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
+                            >
+                                Close
+                            </button>
+                        </div>
+                    </div>
                 )}
-            </AnimatePresence>
-        </>
+            </Modal>
+        </PageTransition>
 	);
 }

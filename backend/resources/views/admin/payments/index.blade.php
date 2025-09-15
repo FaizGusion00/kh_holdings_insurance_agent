@@ -11,7 +11,7 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <h1 class="text-3xl font-bold tracking-tight text-gray-900">Payments Management</h1>
-                        <p class="mt-2 text-sm text-gray-700">Manage payment transactions and member balances.</p>
+                        <p class="mt-2 text-sm text-gray-700">Manage payment transactions and agent wallets.</p>
                     </div>
                     <div class="flex space-x-3">
                         <a href="{{ route('admin.payments.pending') }}" 
@@ -40,8 +40,20 @@
             <div>
                 <label for="search" class="block text-sm font-medium text-gray-700">Search</label>
                 <input type="text" name="search" id="search" value="{{ request('search') }}" 
-                       placeholder="Reference, member name..." 
+                       placeholder="Reference, agent name..." 
                        class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+            </div>
+            
+            <div>
+                <label for="agent" class="block text-sm font-medium text-gray-700">Agent</label>
+                <select name="agent" id="agent" class="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm">
+                    <option value="">All Agents</option>
+                    @foreach($agents as $agent)
+                        <option value="{{ $agent->id }}" {{ request('agent') == $agent->id ? 'selected' : '' }}>
+                            {{ $agent->name }} ({{ $agent->agent_code ?? $agent->email }})
+                        </option>
+                    @endforeach
+                </select>
             </div>
             
             <div>
@@ -73,6 +85,8 @@
                     <option value="membership_fee" {{ request('payment_type') == 'membership_fee' ? 'selected' : '' }}>Membership Fee</option>
                     <option value="sharing_account" {{ request('payment_type') == 'sharing_account' ? 'selected' : '' }}>Sharing Account</option>
                     <option value="policy_premium" {{ request('payment_type') == 'policy_premium' ? 'selected' : '' }}>Policy Premium</option>
+                    <option value="commission_bonus" {{ request('payment_type') == 'commission_bonus' ? 'selected' : '' }}>Commission Bonus</option>
+                    <option value="extra_payment" {{ request('payment_type') == 'extra_payment' ? 'selected' : '' }}>Extra Payment</option>
                 </select>
             </div>
             
@@ -164,7 +178,7 @@
                     <thead class="bg-gray-50">
                         <tr>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Reference</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Member</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Agent</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Method</th>
@@ -186,12 +200,12 @@
                                 <div class="flex items-center">
                                     <div class="flex-shrink-0 h-10 w-10">
                                         <div class="h-10 w-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-center">
-                                            <span class="text-white font-semibold text-sm">{{ substr($payment->member ? $payment->member->name : 'N', 0, 1) }}</span>
+                                            <span class="text-white font-semibold text-sm">{{ substr($payment->user ? $payment->user->name : 'N', 0, 1) }}</span>
                                         </div>
                                     </div>
                                     <div class="ml-4">
-                                        <div class="text-sm font-medium text-gray-900">{{ $payment->member ? $payment->member->name : 'N/A' }}</div>
-                                        <div class="text-sm text-gray-500">{{ $payment->member ? $payment->member->nric : 'N/A' }}</div>
+                                        <div class="text-sm font-medium text-gray-900">{{ $payment->user ? $payment->user->name : 'N/A' }}</div>
+                                        <div class="text-sm text-gray-500">{{ $payment->user ? ($payment->user->agent_code ?? $payment->user->email) : 'N/A' }}</div>
                                     </div>
                                 </div>
                             </td>

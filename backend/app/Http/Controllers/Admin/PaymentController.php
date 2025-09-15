@@ -17,7 +17,7 @@ class PaymentController extends Controller
      */
     public function index(Request $request)
     {
-        $query = PaymentTransaction::with(['member', 'policy.product'])
+        $query = PaymentTransaction::with(['user', 'policy.product'])
             ->withSum('policy', 'total_paid');
         
         // Search functionality
@@ -26,8 +26,8 @@ class PaymentController extends Controller
             $query->where(function ($q) use ($search) {
                 $q->where('reference_number', 'like', "%{$search}%")
                   ->orWhere('description', 'like', "%{$search}%")
-                  ->orWhereHas('member', function ($memberQuery) use ($search) {
-                      $memberQuery->where('name', 'like', "%{$search}%")
+                  ->orWhereHas('user', function ($userQuery) use ($search) {
+                      $userQuery->where('name', 'like', "%{$search}%")
                                  ->orWhere('nric', 'like', "%{$search}%");
                   });
             });
@@ -36,6 +36,11 @@ class PaymentController extends Controller
         // Filter by status
         if ($request->filled('status')) {
             $query->where('status', $request->status);
+        }
+        
+        // Filter by agent
+        if ($request->filled('agent')) {
+            $query->where('user_id', $request->agent);
         }
         
         // Filter by payment method
@@ -88,10 +93,10 @@ class PaymentController extends Controller
      */
     public function create()
     {
-        $members = Member::where('status', 'active')->get();
+        $agents = User::where('status', 'active')->get();
         $policies = MemberPolicy::where('status', 'active')->get();
         
-        return view('admin.payments.create', compact('members', 'policies'));
+        return view('admin.payments.create', compact('agents', 'policies'));
     }
 
     /**
@@ -100,10 +105,10 @@ class PaymentController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'member_id' => 'required|exists:members,id',
-            'policy_id' => 'required|exists:member_policies,id',
+            'agent_id' => 'required|exists:users,id',
+            'policy_id' => 'nullable|exists:member_policies,id',
             'amount' => 'required|numeric|min:0.01',
-            'payment_type' => 'required|in:membership_fee,sharing_account,policy_premium',
+            'payment_type' => 'required|in:membership_fee,sharing_account,policy_premium,commission_bonus,extra_payment',
             'payment_method' => 'required|in:mandate,manual,card',
             'status' => 'required|in:pending,processing,completed,failed,cancelled',
             'transaction_date' => 'required|date|before_or_equal:today',
@@ -122,7 +127,7 @@ class PaymentController extends Controller
         $referenceNumber = $request->reference_number ?: 'REF' . date('Ymd') . str_pad(PaymentTransaction::count() + 1, 4, '0', STR_PAD_LEFT);
 
         $payment = PaymentTransaction::create([
-            'member_id' => $request->member_id,
+            'user_id' => $request->agent_id,
             'policy_id' => $request->policy_id,
             'amount' => $request->amount,
             'payment_type' => $request->payment_type,
@@ -134,11 +139,30 @@ class PaymentController extends Controller
             'gateway_reference' => $request->gateway_reference,
         ]);
 
-        // Update member balance if payment is completed
+        // Update agent wallet if payment is completed
         if ($request->status === 'completed') {
-            $member = Member::find($request->member_id);
-            $member->increment('balance', $request->amount);
-            $payment->update(['processed_at' => now()]);
+            $agent = User::find($request->agent_id);
+            if ($agent) {
+                // Get or create agent wallet
+                $wallet = \App\Models\AgentWallet::firstOrCreate(
+                    ['user_id' => $agent->id],
+                    ['balance' => 0, 'pending_commission' => 0]
+                );
+                
+                // Add funds to wallet
+                $wallet->increment('balance', $request->amount);
+                
+                // Create wallet transaction record
+                \App\Models\WalletTransaction::create([
+                    'agent_wallet_id' => $wallet->id,
+                    'type' => 'deposit',
+                    'amount' => $request->amount,
+                    'description' => $request->description ?: 'Admin payment - ' . $request->payment_type,
+                    'status' => 'completed',
+                ]);
+                
+                $payment->update(['processed_at' => now()]);
+            }
         }
 
         return redirect()->route('admin.payments.index')

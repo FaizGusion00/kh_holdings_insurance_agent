@@ -41,6 +41,7 @@ export default function MedicalInsurancePaymentPage({
   const [showPaymentForm, setShowPaymentForm] = useState(false);
   const [registrationDetails, setRegistrationDetails] = useState<any>(null);
   const [totalAmount, setTotalAmount] = useState<number | null>(null);
+  const [amountBreakdown, setAmountBreakdown] = useState<any[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -118,8 +119,9 @@ export default function MedicalInsurancePaymentPage({
           calculate_only: true
         });
         
-        if (preCalcResponse.success && preCalcResponse.data?.total_amount) {
+        if (preCalcResponse.success && preCalcResponse.data?.total_amount !== undefined) {
           setTotalAmount(preCalcResponse.data.total_amount);
+          setAmountBreakdown(preCalcResponse.data.breakdown || []);
         }
       }
     } catch (err) {
@@ -178,6 +180,9 @@ export default function MedicalInsurancePaymentPage({
 
         const razorpay = new (window as any).Razorpay(options);
         razorpay.open();
+        // Sync UI with authoritative backend total and breakdown
+        setTotalAmount(response.data.amount);
+        setAmountBreakdown(response.data.breakdown || []);
       } else {
         setError(response.message || "Failed to create payment order");
       }
@@ -399,6 +404,19 @@ export default function MedicalInsurancePaymentPage({
                       {totalAmount !== null ? `RM ${totalAmount.toFixed(2)}` : 'Calculating...'}
                     </span>
                   </div>
+                  {amountBreakdown.length > 0 && (
+                    <div className="mt-2">
+                      <div className="text-sm font-semibold text-emerald-900 mb-1">Amount Breakdown</div>
+                      <div className="space-y-1 text-sm">
+                        {amountBreakdown.map((row, idx) => (
+                          <div key={idx} className="flex justify-between text-emerald-800">
+                            <span className="truncate">{String(row.customer_type).toUpperCase()} • {row.plan_type} • {String(row.payment_mode).replace('_',' ')}</span>
+                            <span>RM {(row.line_total ?? 0).toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   <div className="flex justify-between">
                     <span className="text-emerald-700">Currency:</span>
                     <span className="font-medium text-emerald-800">MYR</span>

@@ -11,7 +11,7 @@
                 <div class="flex items-center justify-between">
                     <div>
                         <h1 class="text-3xl font-bold tracking-tight text-gray-900">Add New Payment</h1>
-                        <p class="mt-2 text-sm text-gray-700">Record a new payment transaction for a member.</p>
+                        <p class="mt-2 text-sm text-gray-700">Record a new payment transaction for an agent.</p>
                     </div>
                     <div class="flex space-x-3">
                         <a href="{{ route('admin.payments.index') }}" 
@@ -52,26 +52,26 @@
                 
                 <!-- Form Content -->
                 <div class="px-8 py-8 space-y-8">
-                    <!-- Member and Policy Selection -->
+                    <!-- Agent and Policy Selection -->
                     <div class="grid grid-cols-1 gap-8 lg:grid-cols-2">
-                        <!-- Member Selection -->
+                        <!-- Agent Selection -->
                         <div class="space-y-3">
-                            <label for="member_id" class="block text-sm font-semibold text-gray-800 flex items-center">
+                            <label for="agent_id" class="block text-sm font-semibold text-gray-800 flex items-center">
                                 <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
                                 </svg>
-                                Select Member *
+                                Select Agent *
                             </label>
-                            <select name="member_id" id="member_id" required
+                            <select name="agent_id" id="agent_id" required
                                     class="mt-2 block w-full px-4 py-3 border-2 border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-all duration-200 hover:border-gray-300">
-                                <option value="">Choose a member...</option>
-                                @foreach($members as $member)
-                                    <option value="{{ $member->id }}" {{ old('member_id') == $member->id ? 'selected' : '' }}>
-                                        {{ $member->name }} ({{ $member->nric }})
+                                <option value="">Choose an agent...</option>
+                                @foreach($agents as $agent)
+                                    <option value="{{ $agent->id }}" {{ old('agent_id') == $agent->id ? 'selected' : '' }}>
+                                        {{ $agent->name }} ({{ $agent->agent_code ?? $agent->email }})
                                     </option>
                                 @endforeach
                             </select>
-                            @error('member_id')
+                            @error('agent_id')
                                 <p class="mt-2 text-sm text-red-600 flex items-center">
                                     <svg class="w-4 h-4 mr-1" fill="currentColor" viewBox="0 0 20 20">
                                         <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clip-rule="evenodd"></path>
@@ -81,17 +81,17 @@
                             @enderror
                         </div>
 
-                        <!-- Policy Selection -->
+                        <!-- Policy Selection (Optional) -->
                         <div class="space-y-3">
                             <label for="policy_id" class="block text-sm font-semibold text-gray-800 flex items-center">
                                 <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
                                 </svg>
-                                Select Policy *
+                                Select Policy (Optional)
                             </label>
-                            <select name="policy_id" id="policy_id" required
+                            <select name="policy_id" id="policy_id"
                                     class="mt-2 block w-full px-4 py-3 border-2 border-gray-200 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm transition-all duration-200 hover:border-gray-300">
-                                <option value="">Choose a policy...</option>
+                                <option value="">Choose a policy (optional)...</option>
                                 @foreach($policies as $policy)
                                     <option value="{{ $policy->id }}" {{ old('policy_id') == $policy->id ? 'selected' : '' }}>
                                         {{ $policy->policy_number }} - {{ $policy->product ? $policy->product->name : 'Unknown Product' }}
@@ -160,6 +160,8 @@
                                     <option value="membership_fee" {{ old('payment_type') == 'membership_fee' ? 'selected' : '' }}>Membership Fee</option>
                                     <option value="sharing_account" {{ old('payment_type') == 'sharing_account' ? 'selected' : '' }}>Sharing Account</option>
                                     <option value="policy_premium" {{ old('payment_type') == 'policy_premium' ? 'selected' : '' }}>Policy Premium</option>
+                                    <option value="commission_bonus" {{ old('payment_type') == 'commission_bonus' ? 'selected' : '' }}>Commission Bonus</option>
+                                    <option value="extra_payment" {{ old('payment_type') == 'extra_payment' ? 'selected' : '' }}>Extra Payment</option>
                                 </select>
                                 @error('payment_type')
                                     <p class="mt-2 text-sm text-red-600 flex items-center">

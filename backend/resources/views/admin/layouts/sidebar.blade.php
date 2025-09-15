@@ -97,8 +97,8 @@
                         </a>
                     </li>
 
-                    <!-- Products Management -->
-                    <li>
+                    <!-- Products Management - Hidden for now -->
+                    {{-- <li>
                         <a href="{{ route('admin.products.index') }}" 
                            class="{{ request()->routeIs('admin.products.*') ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:text-blue-600 hover:bg-blue-50' }} group flex gap-x-3 rounded-md p-2 text-sm leading-6 font-semibold transition-all duration-200">
                             <svg class="h-6 w-6 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
@@ -106,7 +106,7 @@
                             </svg>
                             Products
                         </a>
-                    </li>
+                    </li> --}}
 
                     <!-- Hospitals Management -->
                     <li>

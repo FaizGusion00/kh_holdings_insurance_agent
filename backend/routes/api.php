@@ -16,6 +16,7 @@ use App\Http\Controllers\Api\CommissionAutomationController;
 use App\Http\Controllers\Api\ClientsController;
 use App\Http\Controllers\Api\AgentWalletController;
 use App\Http\Controllers\Api\PlanController;
+use App\Http\Controllers\Api\NotificationController;
 use Illuminate\Support\Facades\DB;
 
 /*
@@ -118,6 +119,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('/', [CommissionController::class, 'getReferrals']);
         Route::get('/tree', [CommissionController::class, 'getReferralTree']);
         Route::get('/downlines', [CommissionController::class, 'getDownlines']);
+        Route::get('/{userId}/downlines', [CommissionController::class, 'getUserDownlines']);
         Route::get('/uplines', [CommissionController::class, 'getUplines']);
     });
 
@@ -172,6 +174,14 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/commission/process-policy', [CommissionAutomationController::class, 'processPolicyCommission']);
         Route::post('/commission/sync-pending', [CommissionAutomationController::class, 'syncPendingCommissions']);
         Route::get('/commission/summary', [CommissionAutomationController::class, 'getCommissionSummary']);
+        
+        // Notification routes
+        Route::get('/notifications', [NotificationController::class, 'index']);
+        Route::get('/notifications/unread-count', [NotificationController::class, 'unreadCount']);
+        Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+        Route::post('/notifications/mark-all-read', [NotificationController::class, 'markAllAsRead']);
+        Route::delete('/notifications/{id}', [NotificationController::class, 'destroy']);
+        Route::post('/notifications/test', [NotificationController::class, 'createTest']);
     });
 
     // Clients (agent's customers) routes

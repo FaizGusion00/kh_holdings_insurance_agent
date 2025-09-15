@@ -4,6 +4,7 @@ import "./globals.css";
 import { BottomNav } from "./(ui)/components/BottomNav";
 import { ConditionalBottomNav } from "./(ui)/components/ConditionalBottomNav";
 import { AuthProvider } from "./contexts/AuthContext";
+import EnvironmentInfo from "./components/EnvironmentInfo";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 
@@ -41,6 +42,7 @@ export default function RootLayout({
 				</AuthProvider>
 				
 				<ConditionalBottomNav />
+				<EnvironmentInfo />
 			</body>
 		</html>
 	);

@@ -286,6 +286,84 @@ class CommissionController extends Controller
     }
 
     /**
+     * Get downline agents for a specified user (relative levels up to 5).
+     */
+    public function getUserDownlines(Request $request, int $userId)
+    {
+        $validator = Validator::make($request->all(), [
+            'level' => 'nullable|integer|min:1|max:5',
+            'per_page' => 'nullable|integer|min:1|max:100',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        // Target agent to inspect
+        $targetAgent = \App\Models\User::find($userId);
+        if (!$targetAgent || !$targetAgent->agent_code) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Agent not found'
+            ], 404);
+        }
+
+        $agentCode = $targetAgent->agent_code;
+        $level = $request->input('level');
+        $perPage = $request->input('per_page', 15);
+
+        $query = Referral::query()
+            ->with('agent')
+            ->where('status', 'active');
+
+        if ($level && (int)$level === 1) {
+            // Direct referrals
+            $query->where('referrer_code', $agentCode);
+        } else {
+            // Any level under this agent (or a specific level > 1)
+            $query->whereJsonContains('upline_chain', $agentCode);
+
+            if ($level) {
+                // Ensure the agent code is at the correct index of upline_chain (level-1)
+                // JSON_EXTRACT(upline_chain, '$[index]') = agentCode
+                $index = ((int)$level) - 1;
+                $query->whereRaw('JSON_EXTRACT(upline_chain, "$[$index]") = ?', [$agentCode]);
+            }
+        }
+
+        $downlines = $query->paginate($perPage);
+
+        // Aggregate counts by level (1..5 relative to target agent)
+        $byLevel = [1=>0,2=>0,3=>0,4=>0,5=>0];
+        foreach ($downlines->items() as $ref) {
+            // Determine relative level position in upline_chain
+            $chain = is_array($ref->upline_chain) ? $ref->upline_chain : json_decode($ref->upline_chain, true);
+            $pos = array_search($agentCode, $chain ?? [], true);
+            if ($pos !== false) {
+                $rel = $pos + 1; // index 0 => level 1
+                if (isset($byLevel[$rel])) { $byLevel[$rel]++; }
+            } elseif ($ref->referrer_code === $agentCode) {
+                $byLevel[1]++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $downlines,
+            'by_level_counts' => $byLevel,
+            'agent' => [
+                'id' => $targetAgent->id,
+                'agent_code' => $targetAgent->agent_code,
+                'name' => $targetAgent->name,
+            ]
+        ]);
+    }
+
+    /**
      * Get upline agents.
      */
     public function getUplines(Request $request)

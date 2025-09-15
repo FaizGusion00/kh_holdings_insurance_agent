@@ -1,4 +1,6 @@
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+import { env } from '../../lib/env';
+
+const API_BASE_URL = env.API_URL;
 
 // Types
 export interface User {
@@ -95,6 +97,25 @@ export interface PaymentMandate {
   total_amount_processed: string;
   member?: Member;
   policy?: Policy;
+}
+
+export interface Notification {
+  id: number;
+  user_id: number;
+  type: string;
+  title: string;
+  message: string;
+  data?: any;
+  action_url?: string;
+  action_text?: string;
+  is_read: boolean;
+  is_important: boolean;
+  read_at?: string;
+  created_at: string;
+  time_ago: string;
+  icon: string;
+  color: string;
+  background_color: string;
 }
 
 export interface DashboardStats {
@@ -528,20 +549,6 @@ class ApiService {
     return await this.handleResponse<{ message?: string }>(response);
   }
 
-  async updateBankInfo(bankData: {
-    current_password: string;
-    bank_name: string;
-    bank_account_number: string;
-    bank_account_owner: string;
-  }): Promise<ApiResponse<User>> {
-    const response = await fetch(`${API_BASE_URL}/profile/bank-info`, {
-      method: 'PUT',
-      headers: this.getHeaders(),
-      body: JSON.stringify(bankData)
-    });
-
-    return await this.handleResponse<User>(response);
-  }
 
   // TAC (Transaction Authorization Code)
   async sendTac(phoneNumber: string, purpose: string): Promise<ApiResponse<{ sent: boolean; expires_in?: number }>> {
@@ -843,6 +850,268 @@ class ApiService {
       headers: this.getHeaders()
     });
     return await this.handleResponse<{ data: any[]; current_page: number; total: number }>(response);
+  }
+
+  // Referral methods
+  async getReferrals(): Promise<ApiResponse<{
+    referral: any;
+    direct_referrals: any[];
+    upline_agents: any[];
+    downline_stats: any;
+  }>> {
+    const response = await fetch(`${API_BASE_URL}/referrals`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{
+      referral: any;
+      direct_referrals: any[];
+      upline_agents: any[];
+      downline_stats: any;
+    }>(response);
+  }
+
+  async getReferralTree(): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/referrals/tree`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async getDownlines(level?: number): Promise<ApiResponse<{
+    data: any[];
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+  }>> {
+    const params = new URLSearchParams();
+    if (level) params.append('level', level.toString());
+    
+    const response = await fetch(`${API_BASE_URL}/referrals/downlines?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{
+      data: any[];
+      current_page: number;
+      last_page: number;
+      total: number;
+      per_page: number;
+    }>(response);
+  }
+
+  async getUserDownlines(userId: number, level?: number, page: number = 1): Promise<ApiResponse<{
+    data: any[];
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+    by_level_counts?: Record<string, number>;
+  }>> {
+    const params = new URLSearchParams({ page: String(page) });
+    if (level) params.set('level', String(level));
+    const response = await fetch(`${API_BASE_URL}/referrals/${userId}/downlines?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  async getUplines(): Promise<ApiResponse<any[]>> {
+    const response = await fetch(`${API_BASE_URL}/referrals/uplines`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<any[]>(response);
+  }
+
+  // Commission methods
+  async getMyCommissions(): Promise<ApiResponse<{
+    data: any[];
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+  }>> {
+    const response = await fetch(`${API_BASE_URL}/commissions/my-commissions`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{
+      data: any[];
+      current_page: number;
+      last_page: number;
+      total: number;
+      per_page: number;
+    }>(response);
+  }
+
+  async getCommissionSummary(): Promise<ApiResponse<{
+    total_commission: number;
+    monthly_commission: number;
+    pending_commission: number;
+    paid_commission: number;
+    performance_metrics: any;
+  }>> {
+    const response = await fetch(`${API_BASE_URL}/commissions/summary`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{
+      total_commission: number;
+      monthly_commission: number;
+      pending_commission: number;
+      paid_commission: number;
+      performance_metrics: any;
+    }>(response);
+  }
+
+  async getCommissionHistory(): Promise<ApiResponse<{
+    data: any[];
+    current_page: number;
+    last_page: number;
+    total: number;
+    per_page: number;
+  }>> {
+    const response = await fetch(`${API_BASE_URL}/commissions/history`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+    return await this.handleResponse<{
+      data: any[];
+      current_page: number;
+      last_page: number;
+      total: number;
+      per_page: number;
+    }>(response);
+  }
+
+  // Bank info update
+  async updateBankInfo(data: {
+    bank_name: string;
+    bank_account_number: string;
+    bank_account_owner: string;
+    current_password: string;
+  }): Promise<ApiResponse<any>> {
+    const response = await fetch(`${API_BASE_URL}/profile/bank-info`, {
+      method: 'PUT',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+    return await this.handleResponse<any>(response);
+  }
+
+  // Notifications
+  async getNotifications(limit: number = 100, unreadOnly: boolean = false): Promise<ApiResponse<{
+    data: Notification[];
+    unread_count: number;
+  }>> {
+    const params = new URLSearchParams({
+      limit: limit.toString(),
+      unread_only: unreadOnly.toString()
+    });
+
+    // Backend routes are namespaced under /medical-insurance
+    const response = await this.fetchWithTimeout(`${API_BASE_URL}/medical-insurance/notifications?${params}`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    // Normalize shape because backend returns { data: Notification[], unread_count }
+    // while the generic handler expects nested objects in some endpoints.
+    try {
+      const raw = await response.json();
+      if (!response.ok) {
+        // Fall back to generic error handling for non-2xx
+        return {
+          success: false,
+          message: raw?.message || `Request failed with status ${response.status}`,
+          errors: raw?.errors || { general: [raw?.message || 'Unknown error occurred'] }
+        };
+      }
+
+      const notifications: Notification[] = Array.isArray(raw?.data)
+        ? raw.data
+        : Array.isArray(raw?.data?.data)
+          ? raw.data.data
+          : [];
+
+      const unread = typeof raw?.unread_count === 'number'
+        ? raw.unread_count
+        : typeof raw?.data?.unread_count === 'number'
+          ? raw.data.unread_count
+          : 0;
+
+      return {
+        success: true,
+        message: raw?.message || 'OK',
+        data: {
+          data: notifications,
+          unread_count: unread
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        message: 'Failed to parse server response.',
+        errors: { general: ['Response parsing error'] }
+      };
+    }
+  }
+
+  async getUnreadNotificationCount(): Promise<ApiResponse<{ unread_count: number }>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/notifications/unread-count`, {
+      method: 'GET',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<{ unread_count: number }>(response);
+  }
+
+  async markNotificationAsRead(id: number): Promise<ApiResponse<{ message: string }>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/notifications/${id}/read`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<{ message: string }>(response);
+  }
+
+  async markAllNotificationsAsRead(): Promise<ApiResponse<{ message: string }>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/notifications/mark-all-read`, {
+      method: 'POST',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<{ message: string }>(response);
+  }
+
+  async deleteNotification(id: number): Promise<ApiResponse<{ message: string }>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/notifications/${id}`, {
+      method: 'DELETE',
+      headers: this.getHeaders()
+    });
+
+    return await this.handleResponse<{ message: string }>(response);
+  }
+
+  async createTestNotification(data: {
+    type: string;
+    title: string;
+    message: string;
+    is_important?: boolean;
+    action_url?: string;
+    action_text?: string;
+  }): Promise<ApiResponse<Notification>> {
+    const response = await fetch(`${API_BASE_URL}/medical-insurance/notifications/test`, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data)
+    });
+
+    return await this.handleResponse<Notification>(response);
   }
 }
 

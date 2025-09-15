@@ -4,9 +4,16 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "NODE_OPTIONS=--no-experimental-wasm-modules next build",
+    "dev:prod": "NODE_ENV=production next dev",
+    "build": "next build",
+    "build:dev": "NODE_ENV=development next build",
+    "build:prod": "NODE_ENV=production next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "env:dev": "node scripts/switch-env.js development",
+    "env:prod": "node scripts/switch-env.js production",
+    "env:test": "node scripts/switch-env.js test",
+    "env:status": "node -e \"console.log('Current Environment:', process.env.NODE_ENV || 'development'); console.log('API URL:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api');\""
   },
   "dependencies": {
     "chart.js": "^4.5.0",

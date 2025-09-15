@@ -79,6 +79,69 @@
             </div>
         </div>
 
+        <!-- Current Plan Information -->
+        <div class="bg-white shadow sm:rounded-lg">
+            <div class="px-4 py-5 sm:p-6">
+                <h3 class="text-lg font-medium text-gray-900 border-b border-gray-200 pb-2 mb-4">Current Plan</h3>
+                @php
+                    $currentPlan = $member->currentActivePlan();
+                @endphp
+                @if($currentPlan)
+                    <div class="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Plan Name</dt>
+                            <dd class="mt-1 text-sm text-gray-900 font-medium">{{ $currentPlan->plan_name ?? $currentPlan->product->name ?? 'Unknown Plan' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Plan Type</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ $currentPlan instanceof \App\Models\MedicalInsurancePolicy ? 'Medical Insurance' : 'Member Policy' }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Start Date</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ \Carbon\Carbon::parse($currentPlan->start_date)->format('F j, Y') }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">End Date</dt>
+                            <dd class="mt-1 text-sm text-gray-900">{{ \Carbon\Carbon::parse($currentPlan->end_date)->format('F j, Y') }}</dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Status</dt>
+                            <dd class="mt-1">
+                                @if($currentPlan->end_date && \Carbon\Carbon::parse($currentPlan->end_date)->isPast())
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                                        Expired
+                                    </span>
+                                @elseif($currentPlan->end_date && \Carbon\Carbon::parse($currentPlan->end_date)->diffInDays(now()) <= 30)
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                                        Expires Soon
+                                    </span>
+                                @else
+                                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                                        Active
+                                    </span>
+                                @endif
+                            </dd>
+                        </div>
+                        <div>
+                            <dt class="text-sm font-medium text-gray-500">Days Remaining</dt>
+                            <dd class="mt-1 text-sm text-gray-900">
+                                @if($currentPlan->end_date)
+                                    {{ \Carbon\Carbon::parse($currentPlan->end_date)->diffInDays(now()) }} days
+                                @else
+                                    N/A
+                                @endif
+                            </dd>
+                        </div>
+                    </div>
+                @else
+                    <div class="text-center py-8">
+                        <div class="text-gray-500 text-lg font-medium mb-2">No Active Plan</div>
+                        <div class="text-gray-400 text-sm">This member is not currently enrolled in any insurance plan.</div>
+                    </div>
+                @endif
+            </div>
+        </div>
+
         <!-- Network Hierarchy Information -->
         @if($member->is_agent)
         <div class="bg-white shadow sm:rounded-lg">

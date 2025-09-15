@@ -115,4 +115,38 @@ class Member extends Model
                     ->orderBy('next_payment_date')
                     ->value('next_payment_date');
     }
+
+    /**
+     * Get current active plan for this member.
+     */
+    public function currentActivePlan()
+    {
+        // First check member policies
+        $memberPolicy = $this->policies()
+            ->where('status', 'active')
+            ->where('end_date', '>', now())
+            ->with('product')
+            ->orderBy('end_date', 'desc')
+            ->first();
+
+        if ($memberPolicy) {
+            return $memberPolicy;
+        }
+
+        // Then check medical insurance policies
+        $medicalPolicy = \App\Models\MedicalInsurancePolicy::where('customer_nric', $this->nric)
+            ->where('status', 'active')
+            ->where('end_date', '>', now())
+            ->with('plan')
+            ->orderBy('end_date', 'desc')
+            ->first();
+
+        if ($medicalPolicy) {
+            // Add a plan_name attribute to match the expected structure
+            $medicalPolicy->plan_name = $medicalPolicy->plan->name ?? 'Medical Insurance';
+            return $medicalPolicy;
+        }
+
+        return null;
+    }
 }
