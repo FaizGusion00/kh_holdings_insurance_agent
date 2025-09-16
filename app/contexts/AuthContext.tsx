@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useEffect, useState, ReactNode, useCallback } from 'react';
-import { apiService, User, ApiResponse } from '../services/api';
+import { apiService, User, ApiResponse } from '@/app/services/api';
 import { useRouter } from 'next/navigation';
 
 interface LoginResult {
@@ -93,11 +93,14 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         };
       }
 
-      // Validate agent code format
-      if (!/^AGT\d{5}$/.test(agentCode)) {
+      // Validate agent code format (allow both AGT12345 and email formats)
+      const isValidAgentCode = /^AGT\d{5}$/.test(agentCode);
+      const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(agentCode);
+      
+      if (!isValidAgentCode && !isValidEmail) {
         return { 
           success: false, 
-          message: 'Invalid agent code format. Must be AGT followed by 5 digits.' 
+          message: 'Invalid format. Use AGT followed by 5 digits or email address.' 
         };
       }
 

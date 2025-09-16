@@ -3,197 +3,181 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use App\Models\Commission;
-use App\Models\PaymentTransaction;
-use App\Models\MedicalCase;
-use App\Models\Referral;
 use App\Models\User;
+use App\Models\MemberPolicy;
+use App\Models\PaymentTransaction;
+use App\Models\WalletTransaction;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 
+/**
+ * Dashboard Controller for API
+ * 
+ * Handles dashboard statistics, recent activities, and performance data
+ */
 class DashboardController extends Controller
 {
     /**
-     * Get dashboard overview data.
+     * Get dashboard overview data
      */
-    public function index(Request $request)
+    public function index()
     {
-        $user = $request->user();
-        $currentMonth = Carbon::now()->month;
-        $currentYear = Carbon::now()->year;
+        try {
+            $user = Auth::user();
+            
+            // Get dashboard statistics
+            $stats = $this->getDashboardStats($user);
+            
+            // Get recent activities
+            $recentActivities = $this->getRecentActivities($user);
+            
+            // Get performance data
+            $performanceData = $this->getPerformanceData($user);
 
-        // Get basic stats
-        $stats = $this->getStatsData($user, $currentMonth, $currentYear);
+            return response()->json([
+                'status' => 'success',
+                'data' => [
+                    'stats' => $stats,
+                    'recent_activities' => $recentActivities,
+                    'performance_data' => $performanceData
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch dashboard data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get dashboard statistics
+     */
+    public function statistics()
+    {
+        try {
+            $user = Auth::user();
+            $stats = $this->getDashboardStats($user);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => ['stats' => $stats]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch statistics',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get recent activities
+     */
+    public function recentActivities()
+    {
+        try {
+            $user = Auth::user();
+            $activities = $this->getRecentActivities($user);
+
+            return response()->json([
+                'status' => 'success',
+                'data' => ['activities' => $activities]
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch recent activities',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get dashboard statistics for user
+     */
+    private function getDashboardStats($user)
+    {
+        // Total members in user's downline
+        $totalMembers = User::where('referrer_code', $user->agent_code)->count();
         
-        // Get recent activities
-        $recentActivities = $this->getRecentActivitiesData($user);
-        
-        // Get performance data
-        $performanceData = $this->getPerformanceDataData($user, $currentMonth, $currentYear);
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'stats' => $stats,
-                'recent_activities' => $recentActivities,
-                'performance_data' => $performanceData,
-                'current_month' => $currentMonth,
-                'current_year' => $currentYear
-            ]
-        ]);
-    }
-
-    /**
-     * Get dashboard statistics.
-     */
-    public function getStats(Request $request)
-    {
-        $user = $request->user();
-        $currentMonth = Carbon::now()->month;
-        $currentYear = Carbon::now()->year;
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->getStatsData($user, $currentMonth, $currentYear)
-        ]);
-    }
-
-    /**
-     * Get recent activities.
-     */
-    public function getRecentActivities(Request $request)
-    {
-        $user = $request->user();
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->getRecentActivitiesData($user)
-        ]);
-    }
-
-    /**
-     * Get sharing records (for Records page).
-     */
-    public function getSharingRecords(Request $request)
-    {
-        $user = $request->user();
-        $month = $request->input('month', Carbon::now()->month);
-        $year = $request->input('year', Carbon::now()->year);
-
-        // Get monthly performance data for charts
-        $monthlyData = $this->getMonthlyPerformanceData($user, $year);
-
-        return response()->json([
-            'success' => true,
-            'data' => [
-                'monthly_performance' => $monthlyData,
-                'current_month' => $month,
-                'current_year' => $year
-            ]
-        ]);
-    }
-
-    /**
-     * Get performance data for Records page.
-     */
-    public function getPerformanceData(Request $request)
-    {
-        $user = $request->user();
-        $month = $request->input('month', Carbon::now()->month);
-        $year = $request->input('year', Carbon::now()->year);
-
-        return response()->json([
-            'success' => true,
-            'data' => $this->getPerformanceDataData($user, $month, $year)
-        ]);
-    }
-
-    /**
-     * Private method to get comprehensive stats.
-     */
-    private function getStatsData($user, $month, $year)
-    {
-        // Total customers/downlines (users directly referred by this agent)
-        $totalMembers = User::where('referrer_id', $user->id)->count();
-        
-        // Active customers
-        $activeMembers = User::where('referrer_id', $user->id)
-            ->where('status', 'active')
+        // New members this month
+        $newMembers = User::where('referrer_code', $user->agent_code)
+            ->whereMonth('created_at', Carbon::now()->month)
+            ->whereYear('created_at', Carbon::now()->year)
             ->count();
-        
-        // New customers this month
-        $newMembers = User::where('referrer_id', $user->id)
-            ->whereMonth('created_at', $month)
-            ->whereYear('created_at', $year)
+
+        // Active members (those with active policies)
+        $activeMembers = User::where('referrer_code', $user->agent_code)
+            ->whereHas('memberPolicies', function($query) {
+                $query->where('status', 'active')
+                      ->where('policy_end_date', '>', Carbon::now());
+            })
             ->count();
-        
+
         // Total commission earned
-        $totalCommission = Commission::where('user_id', $user->id)
-            ->where('status', 'paid')
-            ->sum('commission_amount');
+        $totalCommissionEarned = $user->total_commission_earned ?? 0;
+
+        // Monthly commission target achievement percentage
+        $monthlyTarget = $user->monthly_commission_target ?? 1;
+        $monthlyEarned = WalletTransaction::where('user_id', $user->id)
+            ->where('type', 'commission_earned')
+            ->whereMonth('created_at', Carbon::now()->month)
+            ->whereYear('created_at', Carbon::now()->year)
+            ->sum('amount');
         
-        // Monthly commission
-        $monthlyCommission = Commission::where('user_id', $user->id)
-            ->where('month', $month)
-            ->where('year', $year)
-            ->where('status', 'paid')
-            ->sum('commission_amount');
-        
-        // Commission target achievement
-        $targetAchievement = $user->monthly_commission_target > 0 
-            ? round(($monthlyCommission / $user->monthly_commission_target) * 100, 2) 
-            : 0;
-        
-        // Total referrals
-        $referral = Referral::where('user_id', $user->id)->first();
-        $totalReferrals = $referral ? $referral->total_downline_count : 0;
-        
-        // Direct referrals
-        $directReferrals = $referral ? $referral->downline_count : 0;
+        $targetAchievement = $monthlyTarget > 0 ? ($monthlyEarned / $monthlyTarget) * 100 : 0;
+
+        // MLM Level
+        $mlmLevel = $user->mlm_level ?? 1;
 
         return [
             'total_members' => $totalMembers,
-            'active_members' => $activeMembers,
             'new_members' => $newMembers,
-            'total_commission_earned' => round($totalCommission, 2),
-            'monthly_commission' => round($monthlyCommission, 2),
-            'commission_target' => $user->monthly_commission_target,
-            'target_achievement' => $targetAchievement,
-            'total_referrals' => $totalReferrals,
-            'direct_referrals' => $directReferrals,
-            'mlm_level' => $user->mlm_level
+            'active_members' => $activeMembers,
+            'total_commission_earned' => number_format($totalCommissionEarned, 2),
+            'monthly_commission_earned' => number_format($monthlyEarned, 2),
+            'target_achievement' => round($targetAchievement, 1),
+            'mlm_level' => $mlmLevel,
+            'wallet_balance' => number_format($user->wallet_balance ?? 0, 2),
         ];
     }
 
     /**
-     * Private method to get recent activities.
+     * Get recent activities for user
      */
-    private function getRecentActivitiesData($user)
+    private function getRecentActivities($user)
     {
         $activities = [];
 
-        // Recent user registrations (direct referrals)
-        $recentMembers = User::where('referrer_id', $user->id)
-            ->orderBy('created_at', 'desc')
+        // Recent member registrations
+        $newMembers = User::where('referrer_code', $user->agent_code)
+            ->latest()
             ->limit(5)
-            ->get();
+            ->get(['name', 'created_at']);
 
-        foreach ($recentMembers as $member) {
+        foreach ($newMembers as $member) {
             $activities[] = [
                 'type' => 'member_registration',
                 'title' => 'New Member Registered',
-                'description' => "User {$member->name} registered successfully",
-                'date' => $member->created_at,
-                'icon' => 'user-plus',
+                'description' => "{$member->name} joined your network",
+                'created_at' => $member->created_at,
+                'icon' => 'user_plus',
                 'color' => 'green'
             ];
         }
 
         // Recent commission earnings
-        $recentCommissions = Commission::where('user_id', $user->id)
-            ->where('status', 'paid')
-            ->orderBy('payment_date', 'desc')
+        $recentCommissions = WalletTransaction::where('user_id', $user->id)
+            ->where('type', 'commission_earned')
+            ->latest()
             ->limit(5)
             ->get();
 
@@ -201,172 +185,137 @@ class DashboardController extends Controller
             $activities[] = [
                 'type' => 'commission_earned',
                 'title' => 'Commission Earned',
-                'description' => "RM {$commission->commission_amount} commission from {$commission->product->name}",
-                'date' => $commission->payment_date,
-                'icon' => 'dollar-sign',
+                'description' => "Earned RM " . number_format($commission->amount, 2) . " commission",
+                'created_at' => $commission->created_at,
+                'icon' => 'dollar_sign',
                 'color' => 'blue'
             ];
         }
 
         // Recent payments
         $recentPayments = PaymentTransaction::where('user_id', $user->id)
-        ->where('status', 'completed')
-        ->orderBy('transaction_date', 'desc')
-        ->limit(5)
-        ->get();
+            ->where('status', 'completed')
+            ->latest()
+            ->limit(3)
+            ->get();
 
         foreach ($recentPayments as $payment) {
             $activities[] = [
                 'type' => 'payment_received',
                 'title' => 'Payment Received',
-                'description' => "RM {$payment->amount} payment",
-                'date' => $payment->transaction_date,
-                'icon' => 'credit-card',
-                'color' => 'green'
+                'description' => "Payment of RM " . number_format($payment->amount, 2) . " processed",
+                'created_at' => $payment->created_at,
+                'icon' => 'credit_card',
+                'color' => 'emerald'
             ];
         }
 
-        // Sort by date and return top 10
+        // Sort by date and return latest 10
         usort($activities, function($a, $b) {
-            return strtotime($b['date']) - strtotime($a['date']);
+            return $b['created_at']->timestamp - $a['created_at']->timestamp;
         });
 
         return array_slice($activities, 0, 10);
     }
 
     /**
-     * Private method to get performance data.
+     * Get performance data for charts
      */
-    private function getPerformanceDataData($user, $month, $year)
+    private function getPerformanceData($user)
     {
-        // Monthly commission trend (last 12 months)
-        $monthlyTrend = [];
-        $currentDate = Carbon::now();
-        
-        for ($i = 0; $i < 12; $i++) {
-            $checkMonth = $currentDate->month;
-            $checkYear = $currentDate->year;
+        // Monthly commission data for the last 6 months
+        $monthlyData = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $date = Carbon::now()->subMonths($i);
+            $amount = WalletTransaction::where('user_id', $user->id)
+                ->where('type', 'commission_earned')
+                ->whereMonth('created_at', $date->month)
+                ->whereYear('created_at', $date->year)
+                ->sum('amount');
             
-            $monthlyCommission = Commission::where('user_id', $user->id)
-                ->where('month', $checkMonth)
-                ->where('year', $checkYear)
-                ->where('status', 'paid')
-                ->sum('commission_amount');
-            
-            $monthlyTrend[] = [
-                'month' => $checkMonth,
-                'year' => $checkYear,
-                'commission' => round($monthlyCommission, 2),
-                'label' => Carbon::createFromDate($checkYear, $checkMonth, 1)->format('M Y')
+            $monthlyData[] = [
+                'month' => $date->format('M Y'),
+                'amount' => floatval($amount),
+                'target' => floatval($user->monthly_commission_target ?? 0)
             ];
-            
-            $currentDate->subMonth();
         }
 
-        // User/customer growth trend (direct referrals)
-        $memberGrowth = [];
-        $currentDate = Carbon::now();
-        
-        for ($i = 0; $i < 12; $i++) {
-            $checkMonth = $currentDate->month;
-            $checkYear = $currentDate->year;
-            
-            $newMembers = User::where('referrer_id', $user->id)
-                ->whereMonth('created_at', $checkMonth)
-                ->whereYear('created_at', $checkYear)
+        // Network growth data
+        $networkGrowth = [];
+        for ($i = 5; $i >= 0; $i--) {
+            $date = Carbon::now()->subMonths($i);
+            $count = User::where('referrer_code', $user->agent_code)
+                ->where('created_at', '<=', $date->endOfMonth())
                 ->count();
             
-            $memberGrowth[] = [
-                'month' => $checkMonth,
-                'year' => $checkYear,
-                'new_members' => $newMembers,
-                'label' => Carbon::createFromDate($checkYear, $checkMonth, 1)->format('M Y')
+            $networkGrowth[] = [
+                'month' => $date->format('M Y'),
+                'members' => $count
             ];
-            
-            $currentDate->subMonth();
         }
 
-        // Product performance
-        $productPerformance = Commission::where('user_id', $user->id)
-            ->where('month', $month)
-            ->where('year', $year)
-            ->where('status', 'paid')
-            ->with('product')
-            ->select('product_id', DB::raw('SUM(commission_amount) as total_commission'), DB::raw('COUNT(*) as sales_count'))
-            ->groupBy('product_id')
-            ->get()
-            ->map(function($item) {
-                return [
-                    'product_name' => $item->product->name,
-                    'total_commission' => round($item->total_commission, 2),
-                    'sales_count' => $item->sales_count
-                ];
-            });
-
         return [
-            'monthly_commission_trend' => array_reverse($monthlyTrend),
-            'member_growth_trend' => array_reverse($memberGrowth),
-            'product_performance' => $productPerformance,
-            'current_month' => $month,
-            'current_year' => $year
+            'monthly_commissions' => $monthlyData,
+            'network_growth' => $networkGrowth,
+            'total_earnings' => floatval($user->total_commission_earned ?? 0),
+            'avg_monthly_earnings' => floatval($monthlyData ? array_sum(array_column($monthlyData, 'amount')) / count($monthlyData) : 0)
         ];
     }
 
     /**
-     * Private method to get monthly performance data for charts.
+     * Get members list for dashboard
      */
-    private function getMonthlyPerformanceData($user, $year)
+    public function getMembers(Request $request)
     {
-        $monthlyData = [];
-        
-        for ($month = 1; $month <= 12; $month++) {
-            // Commission data
-            $commission = Commission::where('user_id', $user->id)
-                ->where('month', $month)
-                ->where('year', $year)
-                ->where('status', 'paid')
-                ->sum('commission_amount');
-            
-            // User data (new direct referrals)
-            $newMembers = User::where('referrer_id', $user->id)
-                ->whereMonth('created_at', $month)
-                ->whereYear('created_at', $year)
-                ->count();
-            
-            // Payment data
-            // Use gateway payments instead of legacy payment_transactions
-            $payments = \App\Models\GatewayPayment::where('agent_id', $user->id)
-                ->whereMonth('completed_at', $month)
-                ->whereYear('completed_at', $year)
-                ->where('status', 'completed')
-                ->sum('amount');
+        try {
+            $user = Auth::user();
+            $perPage = $request->input('per_page', 10);
+            $search = $request->input('search');
 
-            // Medical case counts (approved)
-            $hospitalCases = MedicalCase::where('user_id', $user->id)
-                ->where('case_type', 'hospital')
-                ->where('status', 'approved')
-                ->whereMonth('approved_at', $month)
-                ->whereYear('approved_at', $year)
-                ->count();
+            $query = User::where('referrer_code', $user->agent_code)
+                ->with(['memberPolicies' => function($q) {
+                    $q->where('status', 'active');
+                }]);
 
-            $clinicCases = MedicalCase::where('user_id', $user->id)
-                ->where('case_type', 'clinic')
-                ->where('status', 'approved')
-                ->whereMonth('approved_at', $month)
-                ->whereYear('approved_at', $year)
-                ->count();
-            
-            $monthlyData[] = [
-                'month' => $month,
-                'month_name' => Carbon::createFromDate($year, $month, 1)->format('M'),
-                'commission' => round($commission, 2),
-                'new_members' => $newMembers,
-                'payments' => round($payments, 2),
-                'hospital_cases' => $hospitalCases,
-                'clinic_cases' => $clinicCases,
-            ];
+            if ($search) {
+                $query->where(function($q) use ($search) {
+                    $q->where('name', 'LIKE', "%{$search}%")
+                      ->orWhere('email', 'LIKE', "%{$search}%")
+                      ->orWhere('nric', 'LIKE', "%{$search}%");
+                });
+            }
+
+            $members = $query->paginate($perPage);
+
+            // Transform the data to include additional information
+            $members->getCollection()->transform(function($member) {
+                return [
+                    'id' => $member->id,
+                    'name' => $member->name,
+                    'email' => $member->email,
+                    'nric' => $member->nric,
+                    'phone_number' => $member->phone_number,
+                    'status' => $member->status,
+                    'registration_date' => $member->registration_date,
+                    'balance' => $member->balance,
+                    'wallet_balance' => $member->wallet_balance,
+                    'mlm_level' => $member->mlm_level,
+                    'active_policies_count' => $member->memberPolicies->count(),
+                    'total_commission_earned' => $member->total_commission_earned,
+                ];
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'data' => $members
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to fetch members',
+                'error' => $e->getMessage()
+            ], 500);
         }
-        
-        return $monthlyData;
     }
 }

@@ -54,7 +54,8 @@ export default function RecordsPage() {
 				if (res.success && (res.data as RecordsSharingResponse)?.monthly_performance) {
 					const monthly = (res.data as RecordsSharingResponse).monthly_performance as SharingMonthlyPerformanceItem[];
 					const mapped: MonthlyRecord[] = monthly.map((m) => {
-						const calcDate = new Date(year, m.month - 1, 1);
+						const monthIndex = monthNames.indexOf(m.month);
+						const calcDate = new Date(year, monthIndex >= 0 ? monthIndex : 0, 1);
 						const members = m.new_members ?? 0;
 						const sharedAmount = Number(m.payments ?? 0);
 						const avgCommitment = members > 0 ? +(sharedAmount / members).toFixed(2) : 0;

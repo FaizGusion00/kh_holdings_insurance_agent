@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Plus, Minus, ChevronDown, ChevronUp } from "lucide-react";
-import { apiService } from "../../services/api";
+import { apiService } from "@/app/services/api";
 import MedicalInsurancePaymentPage from "./MedicalInsurancePaymentPage";
 
 interface MedicalInsurancePlan {

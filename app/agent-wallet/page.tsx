@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { apiService } from "../services/api";
+import { apiService } from "@/app/services/api";
 import {
   Wallet,
   DollarSign,
@@ -73,7 +73,7 @@ export default function AgentWalletPage() {
 
       const response = await apiService.getAgentWallet();
 
-      if (response.success) {
+      if (response.success && response.data) {
         setWalletData(response.data);
       } else {
         setError(response.message || "Failed to load wallet data");

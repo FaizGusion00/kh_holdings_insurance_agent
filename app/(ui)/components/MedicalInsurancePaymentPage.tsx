@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle, CreditCard, Shield, Clock, X } from "lucide-react";
-import { apiService } from "../../services/api";
+import { apiService } from "@/app/services/api";
 
 interface MedicalInsurancePlan {
   id: number;

@@ -2,6 +2,8 @@
 
 namespace Database\Seeders;
 
+use App\Models\User;
+// use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
@@ -11,16 +13,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // Seed insurance plans and commission rates
         $this->call([
-            AdminSeeder::class,
-            InsuranceProductSeeder::class,
-            ProductCommissionRuleSeeder::class,
-            UserSeeder::class,
-            MedicalCaseSeeder::class,
-            HospitalSeeder::class,
-            ClinicSeeder::class,
-            WalletSeeder::class,
-            CommissionRuleSeeder::class, // Added commission rules
+            InsurancePlansSeeder::class,
+            CommissionRatesSeeder::class,
         ]);
+
+        $this->command->info('Database seeding completed successfully!');
     }
 }

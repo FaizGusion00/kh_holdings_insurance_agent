@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../contexts/AuthContext";
-import { apiService, PaymentTransaction, PaymentMandate, DashboardStats, RecentActivity } from "../services/api";
+import { apiService, PaymentTransaction, PaymentMandate, DashboardStats, RecentActivity } from "@/app/services/api";
 import {
     Chart as ChartJS,
     CategoryScale,
@@ -175,8 +175,7 @@ export default function ProfilePage() {
                 streetAddress: user.address || "",
                 postalCode: user.postal_code || "",
                 state: user.state || "",
-                city: user.city || "",
-                accountPassword: ""
+                city: user.city || ""
             });
         }
     }, [user]);
@@ -309,8 +308,7 @@ export default function ProfilePage() {
         streetAddress: user?.address || "",
         postalCode: user?.postal_code || "",
         state: user?.state || "",
-        city: user?.city || "",
-        accountPassword: ""
+        city: user?.city || ""
     });
 
     const handleLogout = async () => {
@@ -503,27 +501,43 @@ export default function ProfilePage() {
     };
 
     const handlePasswordUpdate = async () => {
+        setPasswordError('');
+        
         if (!oldPassword || !newPassword || !confirmPassword) {
-            setPasswordError('Please fill out this field.');
+            setPasswordError('Please fill in all password fields.');
             return;
         }
         if (newPassword !== confirmPassword) {
             setPasswordError('New passwords do not match.');
             return;
         }
-        if (newPassword.length < 6) {
-            setPasswordError('Password must be at least 6 characters.');
+        if (newPassword.length < 8) {
+            setPasswordError('Password must be at least 8 characters.');
             return;
         }
+
         try {
-            await apiService.changePassword({
+            console.log('Attempting to change password...');
+            const res = await apiService.changePassword({
                 current_password: oldPassword,
                 new_password: newPassword,
                 new_password_confirmation: confirmPassword,
             });
-            setShowChangePasswordModal(false);
-            setPasswordError('');
+
+            console.log('Password change result:', res);
+
+            if (res.success || res.status === 'success') {
+                alert('Password changed successfully!');
+                setShowChangePasswordModal(false);
+                setPasswordError('');
+                setOldPassword('');
+                setNewPassword('');
+                setConfirmPassword('');
+            } else {
+                setPasswordError(res.message || 'Failed to change password');
+            }
         } catch (e) {
+            console.error('Password change error:', e);
             setPasswordError(e instanceof Error ? e.message : 'Failed to change password');
         }
     };
@@ -536,20 +550,62 @@ export default function ProfilePage() {
     };
 
     const handleSubmitUpdateProfile = async () => {
+        // Basic validation
+        if (!profileForm.name.trim()) {
+            alert('Name is required');
+            return;
+        }
+        if (!profileForm.streetAddress.trim()) {
+            alert('Street address is required');
+            return;
+        }
+        if (!profileForm.city.trim()) {
+            alert('City is required');
+            return;
+        }
+        if (!profileForm.state.trim()) {
+            alert('State is required');
+            return;
+        }
+        if (!profileForm.postalCode.trim()) {
+            alert('Postal code is required');
+            return;
+        }
+
         try {
-            const res = await apiService.updateProfile({
+            console.log('Submitting profile update with:', {
                 name: profileForm.name,
+                email: profileForm.email,
                 address: profileForm.streetAddress,
                 city: profileForm.city,
                 state: profileForm.state,
                 postal_code: profileForm.postalCode,
             });
+
+            const res = await apiService.updateProfile({
+                name: profileForm.name,
+                email: profileForm.email,
+                address: profileForm.streetAddress,
+                city: profileForm.city,
+                state: profileForm.state,
+                postal_code: profileForm.postalCode,
+            });
+
+            console.log('Profile update result:', res);
+
             if (res.success && res.data) {
-                updateUser(res.data);
+                // Update the user context with new data
+                if (res.data.user) {
+                    updateUser(res.data.user);
+                }
+                alert('Profile updated successfully!');
                 setShowUpdateProfileModal(false);
+            } else {
+                alert(res.message || 'Failed to update profile');
             }
         } catch (e) {
             console.error('Update profile failed', e);
+            alert('Failed to update profile. Please try again.');
         }
     };
 
@@ -765,8 +821,16 @@ export default function ProfilePage() {
                                         <div className="font-semibold text-gray-800">{user?.name || 'N/A'}</div>
                                     </div>
                                     <div>
+                                        <div className="text-gray-500 text-sm mb-1">Email</div>
+                                        <div className="font-semibold text-gray-800">{user?.email || 'N/A'}</div>
+                                    </div>
+                                    <div>
                                         <div className="text-gray-500 text-sm mb-1">Phone Number</div>
                                         <div className="font-semibold text-gray-800">{user?.phone_number || 'N/A'}</div>
+                                    </div>
+                                    <div>
+                                        <div className="text-gray-500 text-sm mb-1">Agent Code</div>
+                                        <div className="font-semibold text-gray-800">{user?.agent_code || 'N/A'}</div>
                                     </div>
                                 </div>
                             </div>
@@ -2082,17 +2146,6 @@ export default function ProfilePage() {
                                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
                                 placeholder="Enter your city"
                                         />
-                                    </div>
-                                    <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Account Password</label>
-                                        <input
-                                            type="password"
-                                            value={profileForm.accountPassword}
-                                            onChange={(e) => setProfileForm({...profileForm, accountPassword: e.target.value})}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500"
-                                            placeholder="Enter your account password"
-                                        />
-                                        <p className="text-sm text-gray-500 mt-1">Please enter your account password to update profile</p>
                                     </div>
                                 </div>
                     <div className="flex justify-end gap-3 pt-4">

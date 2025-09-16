@@ -9,34 +9,32 @@ class CurlecPaymentService
 {
     private $keyId;
     private $keySecret;
-    private $webhookSecret;
-    private $environment;
+    private $isSandbox;
     private $baseUrl;
 
     public function __construct()
     {
         $this->keyId = config('services.curlec.key_id');
         $this->keySecret = config('services.curlec.key_secret');
-        $this->webhookSecret = config('services.curlec.webhook_secret');
-        $this->environment = config('services.curlec.environment', 'test');
-        $this->baseUrl = $this->environment === 'live' 
-            ? 'https://api.razorpay.com/v1' 
-            : 'https://api.razorpay.com/v1';
+        $this->isSandbox = config('services.curlec.sandbox', true);
+        $this->baseUrl = $this->isSandbox ? 'https://api.curlec.com/v1' : 'https://api.curlec.com/v1';
     }
 
     /**
      * Create a payment order
      */
-    public function createOrder($amount, $currency = 'MYR', $receipt = null, $notes = [])
+    public function createOrder($amount, $currency = 'MYR', $receiptId = null, $notes = [])
     {
         try {
+            $data = [
+                'amount' => $amount * 100, // Amount in sens (smallest currency unit)
+                'currency' => $currency,
+                'receipt' => $receiptId ?: 'receipt_' . time(),
+                'notes' => $notes
+            ];
+
             $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/orders', [
-                    'amount' => $amount * 100, // Convert to cents
-                    'currency' => $currency,
-                    'receipt' => $receipt ?? 'order_' . time(),
-                    'notes' => $notes
-                ]);
+                ->post($this->baseUrl . '/orders', $data);
 
             if ($response->successful()) {
                 return [
@@ -47,100 +45,21 @@ class CurlecPaymentService
 
             return [
                 'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Failed to create order'
+                'error' => $response->json()['error'] ?? 'Failed to create order',
+                'status_code' => $response->status()
             ];
 
         } catch (\Exception $e) {
-            Log::error('Curlec Payment Order Creation Failed: ' . $e->getMessage());
+            Log::error('Curlec order creation failed: ' . $e->getMessage());
             return [
                 'success' => false,
-                'error' => 'Payment service unavailable'
+                'error' => 'Payment service temporarily unavailable'
             ];
         }
     }
 
     /**
-     * Create a subscription plan
-     */
-    public function createPlan($planData)
-    {
-        try {
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/plans', $planData);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Failed to create plan'
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec Plan Creation Failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Plan creation service unavailable'
-            ];
-        }
-    }
-
-    /**
-     * Create a subscription
-     */
-    public function createSubscription($subscriptionData)
-    {
-        try {
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/subscriptions', $subscriptionData);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Failed to create subscription'
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec Subscription Creation Failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Subscription creation service unavailable'
-            ];
-        }
-    }
-
-    /**
-     * Verify payment signature
-     */
-    public function verifyPaymentSignature($razorpayOrderId, $razorpayPaymentId, $razorpaySignature)
-    {
-        $generatedSignature = hash_hmac('sha256', $razorpayOrderId . "|" . $razorpayPaymentId, $this->keySecret);
-        
-        return hash_equals($generatedSignature, $razorpaySignature);
-    }
-
-    /**
-     * Verify subscription signature
-     */
-    public function verifySubscriptionSignature($razorpayPaymentId, $razorpaySubscriptionId, $razorpaySignature)
-    {
-        $generatedSignature = hash_hmac('sha256', $razorpayPaymentId . "|" . $razorpaySubscriptionId, $this->keySecret);
-        
-        return hash_equals($generatedSignature, $razorpaySignature);
-    }
-
-    /**
-     * Get payment details
+     * Fetch payment details
      */
     public function getPayment($paymentId)
     {
@@ -157,104 +76,162 @@ class CurlecPaymentService
 
             return [
                 'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Payment not found'
+                'error' => 'Payment not found',
+                'status_code' => $response->status()
             ];
 
         } catch (\Exception $e) {
-            Log::error('Curlec Payment Retrieval Failed: ' . $e->getMessage());
+            Log::error('Curlec payment fetch failed: ' . $e->getMessage());
             return [
                 'success' => false,
-                'error' => 'Payment service unavailable'
+                'error' => 'Payment service temporarily unavailable'
             ];
         }
     }
 
     /**
-     * Get subscription details
+     * Verify payment signature for webhooks
      */
-    public function getSubscription($subscriptionId)
+    public function verifySignature($payload, $signature, $secret = null)
     {
-        try {
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->get($this->baseUrl . '/subscriptions/' . $subscriptionId);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Subscription not found'
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec Subscription Retrieval Failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Subscription service unavailable'
-            ];
+        $webhookSecret = $secret ?: config('services.curlec.webhook_secret');
+        
+        if (!$webhookSecret) {
+            return false;
         }
+
+        $expectedSignature = hash_hmac('sha256', $payload, $webhookSecret);
+        
+        return hash_equals($expectedSignature, $signature);
     }
 
     /**
-     * Cancel subscription
+     * Create a checkout session for frontend
      */
-    public function cancelSubscription($subscriptionId, $cancelAtCycleEnd = false)
+    public function createCheckoutSession($order, $customer = [], $options = [])
     {
-        try {
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/subscriptions/' . $subscriptionId . '/cancel', [
-                    'cancel_at_cycle_end' => $cancelAtCycleEnd
-                ]);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error']['description'] ?? 'Failed to cancel subscription'
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec Subscription Cancellation Failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Subscription cancellation service unavailable'
-            ];
-        }
-    }
-
-    /**
-     * Get client-side configuration for Razorpay checkout
-     */
-    public function getCheckoutConfig($orderId, $amount, $currency = 'MYR', $name = 'Medical Insurance', $description = 'Medical Insurance Payment')
-    {
-        return [
+        $checkoutData = [
             'key' => $this->keyId,
-            'amount' => $amount * 100, // Convert to cents
-            'currency' => $currency,
-            'name' => $name,
-            'description' => $description,
-            'order_id' => $orderId,
+            'amount' => $order['amount'],
+            'currency' => $order['currency'],
+            'order_id' => $order['id'],
+            'name' => config('app.name', 'KH Holdings Insurance'),
+            'description' => $options['description'] ?? 'Insurance Premium Payment',
+            'image' => $options['logo'] ?? '',
             'prefill' => [
-                'name' => '',
-                'email' => '',
-                'contact' => ''
+                'name' => $customer['name'] ?? '',
+                'email' => $customer['email'] ?? '',
+                'contact' => $customer['phone'] ?? ''
             ],
             'theme' => [
-                'color' => '#F37254'
+                'color' => $options['theme_color'] ?? '#264EE4'
             ],
-            'handler' => 'function (response) { console.log(response); }',
             'modal' => [
-                'ondismiss' => 'function() { console.log("Payment cancelled"); }'
+                'ondismiss' => 'function(){console.log("Payment cancelled")}'
             ]
+        ];
+
+        // Add callback URLs if provided
+        if (isset($options['callback_url'])) {
+            $checkoutData['callback_url'] = $options['callback_url'];
+        }
+
+        if (isset($options['redirect'])) {
+            $checkoutData['redirect'] = $options['redirect'];
+        }
+
+        return $checkoutData;
+    }
+
+    /**
+     * Refund a payment
+     */
+    public function refundPayment($paymentId, $amount = null, $notes = [])
+    {
+        try {
+            $data = [
+                'notes' => $notes
+            ];
+
+            if ($amount) {
+                $data['amount'] = $amount * 100; // Amount in sens
+            }
+
+            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
+                ->post($this->baseUrl . '/payments/' . $paymentId . '/refund', $data);
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json()
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => $response->json()['error'] ?? 'Refund failed',
+                'status_code' => $response->status()
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Curlec refund failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Refund service temporarily unavailable'
+            ];
+        }
+    }
+
+    /**
+     * Create subscription for recurring payments
+     */
+    public function createSubscription($planId, $customerId, $quantity = 1, $notes = [])
+    {
+        try {
+            $data = [
+                'plan_id' => $planId,
+                'customer_id' => $customerId,
+                'quantity' => $quantity,
+                'notes' => $notes
+            ];
+
+            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
+                ->post($this->baseUrl . '/subscriptions', $data);
+
+            if ($response->successful()) {
+                return [
+                    'success' => true,
+                    'data' => $response->json()
+                ];
+            }
+
+            return [
+                'success' => false,
+                'error' => $response->json()['error'] ?? 'Subscription creation failed',
+                'status_code' => $response->status()
+            ];
+
+        } catch (\Exception $e) {
+            Log::error('Curlec subscription creation failed: ' . $e->getMessage());
+            return [
+                'success' => false,
+                'error' => 'Subscription service temporarily unavailable'
+            ];
+        }
+    }
+
+    /**
+     * Get checkout options for frontend integration
+     */
+    public function getCheckoutOptions()
+    {
+        return [
+            'key_id' => $this->keyId,
+            'sandbox' => $this->isSandbox,
+            'currency' => 'MYR',
+            'company_name' => config('app.name', 'KH Holdings Insurance'),
+            'company_logo' => url('/assets/logo.png'), // Add your logo URL
+            'theme_color' => '#264EE4'
         ];
     }
 }

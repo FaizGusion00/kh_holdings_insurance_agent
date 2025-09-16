@@ -10,50 +10,36 @@ class WithdrawalRequest extends Model
     use HasFactory;
 
     protected $fillable = [
-        'agent_id',
-        'amount',
-        'status',
-        'notes',
-        'admin_notes',
-        'proof_url',
-        'processed_by_admin_id',
-        'processed_at',
+        'user_id', 'request_id', 'amount', 'bank_name', 'bank_account_number',
+        'bank_account_owner', 'status', 'admin_notes', 'processed_at',
+        'processed_by', 'transaction_reference'
     ];
 
-    protected $casts = [
-        'amount' => 'decimal:2',
-        'processed_at' => 'datetime',
-    ];
-
-    /**
-     * Get the agent who made the withdrawal request.
-     */
-    public function agent()
+    protected function casts(): array
     {
-        return $this->belongsTo(User::class, 'agent_id');
+        return [
+            'amount' => 'decimal:2',
+            'processed_at' => 'datetime',
+        ];
     }
 
-    /**
-     * Get the admin who processed the withdrawal request.
-     */
-    public function processedByAdmin()
+    public function user()
     {
-        return $this->belongsTo(Admin::class, 'processed_by_admin_id');
+        return $this->belongsTo(User::class);
     }
 
-    /**
-     * Scope to filter by status.
-     */
-    public function scopeByStatus($query, $status)
+    public function processedBy()
     {
-        return $query->where('status', $status);
+        return $this->belongsTo(Admin::class, 'processed_by');
     }
 
-    /**
-     * Scope to filter by agent.
-     */
-    public function scopeByAgent($query, $agentId)
+    public function scopePending($query)
     {
-        return $query->where('agent_id', $agentId);
+        return $query->where('status', 'pending');
+    }
+
+    public static function generateRequestId()
+    {
+        return 'WDR' . date('YmdHis') . mt_rand(100, 999);
     }
 }

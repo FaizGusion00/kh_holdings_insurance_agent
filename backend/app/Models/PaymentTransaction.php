@@ -10,97 +10,42 @@ class PaymentTransaction extends Model
     use HasFactory;
 
     protected $fillable = [
-        'user_id', // Now primary reference to users table
-        'policy_id',
-        'amount',
-        'payment_type',
-        'payment_method',
-        'status',
-        'transaction_date',
-        'description',
-        'reference_number',
-        'gateway_reference',
-        'gateway_response',
-        'processed_at',
-        'failed_at',
-        'failure_reason',
+        'user_id', 'member_policy_id', 'transaction_id', 'gateway_transaction_id',
+        'amount', 'currency', 'payment_method', 'payment_type', 'status',
+        'gateway_response', 'receipt_number', 'paid_at', 'failure_reason', 'notes'
     ];
 
-    protected $casts = [
-        'amount' => 'decimal:2',
-        'transaction_date' => 'datetime',
-        'processed_at' => 'datetime',
-        'failed_at' => 'datetime',
-        'gateway_response' => 'array',
-    ];
+    protected function casts(): array
+    {
+        return [
+            'amount' => 'decimal:2',
+            'paid_at' => 'datetime',
+            'gateway_response' => 'json',
+        ];
+    }
 
-    /**
-     * Get the user who made this payment.
-     */
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    /**
-     * Get the policy this payment is for.
-     */
-    public function policy()
+    public function memberPolicy()
     {
         return $this->belongsTo(MemberPolicy::class);
     }
 
-    /**
-     * Scope to filter by status.
-     */
-    public function scopeByStatus($query, $status)
-    {
-        return $query->where('status', $status);
-    }
-
-    /**
-     * Scope to filter pending payments.
-     */
-    public function scopePending($query)
-    {
-        return $query->where('status', 'pending');
-    }
-
-    /**
-     * Scope to filter completed payments.
-     */
     public function scopeCompleted($query)
     {
         return $query->where('status', 'completed');
     }
 
-    /**
-     * Scope to filter failed payments.
-     */
-    public function scopeFailed($query)
+    public function scopePending($query)
     {
-        return $query->where('status', 'failed');
+        return $query->where('status', 'pending');
     }
 
-    /**
-     * Get formatted amount.
-     */
-    public function getFormattedAmountAttribute()
+    public static function generateTransactionId()
     {
-        return 'RM ' . number_format($this->amount, 2);
-    }
-
-    /**
-     * Get status badge class.
-     */
-    public function getStatusBadgeClassAttribute()
-    {
-        return match($this->status) {
-            'completed' => 'bg-green-100 text-green-800',
-            'pending' => 'bg-yellow-100 text-yellow-800',
-            'failed' => 'bg-red-100 text-red-800',
-            'cancelled' => 'bg-gray-100 text-gray-800',
-            default => 'bg-gray-100 text-gray-800',
-        };
+        return 'TXN' . date('YmdHis') . mt_rand(1000, 9999);
     }
 }

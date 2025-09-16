@@ -52,15 +52,26 @@ export default function LoginPage() {
 		agent_code_suffix: "",
 		password: ""
 	});
+	
+	const [loginMode, setLoginMode] = useState<'agent_code' | 'email'>('agent_code');
 
 	// Enhanced input validation with real-time feedback
 	const validateField = useCallback((name: string, value: string): FieldError | null => {
 		if (name === 'agent_code_suffix') {
 			if (!value.trim()) {
-				return { field: name, message: VALIDATION_RULES.agent_code.required, type: 'error' };
+				return { field: name, message: loginMode === 'email' ? 'Email is required' : VALIDATION_RULES.agent_code.required, type: 'error' };
 			}
-			if (!/^\d{5}$/.test(value)) {
-				return { field: name, message: VALIDATION_RULES.agent_code.pattern, type: 'error' };
+			
+			if (loginMode === 'email') {
+				// Email validation
+				if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
+					return { field: name, message: 'Please enter a valid email address', type: 'error' };
+				}
+			} else {
+				// Agent code validation
+				if (!/^\d{5}$/.test(value)) {
+					return { field: name, message: VALIDATION_RULES.agent_code.pattern, type: 'error' };
+				}
 			}
 		}
 		
@@ -74,7 +85,7 @@ export default function LoginPage() {
 		}
 		
 		return null;
-	}, []);
+	}, [loginMode]);
 
 	// Real-time form validation
 	useEffect(() => {
@@ -82,8 +93,9 @@ export default function LoginPage() {
 		const passwordError = validateField('password', formData.password);
 		
 		const hasErrors = agentCodeError || passwordError;
-		setIsFormValid(!hasErrors && formData.agent_code_suffix.length === 5 && formData.password.length >= 6);
-	}, [formData, validateField]);
+		const minInputLength = loginMode === 'email' ? 3 : 5;
+		setIsFormValid(!hasErrors && formData.agent_code_suffix.length >= minInputLength && formData.password.length >= 6);
+	}, [formData, validateField, loginMode]);
 
 	// Enhanced input change handler with real-time validation
 	const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -147,8 +159,10 @@ export default function LoginPage() {
 		setSuccessMsg("");
 		
 		try {
-			const agent_code = `AGT${formData.agent_code_suffix.padStart(5, '0')}`;
-			const result = await login(agent_code, formData.password);
+			const loginIdentifier = loginMode === 'email' 
+				? formData.agent_code_suffix 
+				: `AGT${formData.agent_code_suffix.padStart(5, '0')}`;
+			const result = await login(loginIdentifier, formData.password);
 			
 			if (result.success) {
 				setSuccessMsg("Login successful! Redirecting to dashboard...");
@@ -370,7 +384,7 @@ export default function LoginPage() {
 																<Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
 																<div>
 																	<div className="font-semibold capitalize">
-																		{field.replaceAll('_',' ')}
+																		{field.replace(/_/g, ' ')}
 																	</div>
 																	<ul className="list-disc ml-5 mt-1">
 																		{msgs.map((m, i) => (<li key={`${field}-${i}`}>{m}</li>))}
@@ -383,34 +397,95 @@ export default function LoginPage() {
 											)}
 										</AnimatePresence>
 
-										<form className="space-y-4 sm:space-y-6" onSubmit={handleLogin}>
-											{/* Enhanced Agent Code Field */}
-											<FadeIn delay={0.8}>
+									{/* Login Mode Toggle */}
+									<FadeIn delay={0.7}>
+										<div className="flex items-center justify-center gap-1 bg-gray-100 rounded-lg p-1 mb-6">
+											<button
+												type="button"
+												onClick={() => {
+													setLoginMode('agent_code');
+													setFormData({ agent_code_suffix: '', password: formData.password });
+													setFieldErrors([]);
+												}}
+												className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all duration-200 ${
+													loginMode === 'agent_code' 
+														? 'bg-white text-[#264EE4] shadow-sm' 
+														: 'text-gray-600 hover:text-gray-800'
+												}`}
+											>
+												Agent Code
+											</button>
+											<button
+												type="button"
+												onClick={() => {
+													setLoginMode('email');
+													setFormData({ agent_code_suffix: '', password: formData.password });
+													setFieldErrors([]);
+												}}
+												className={`flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all duration-200 ${
+													loginMode === 'email' 
+														? 'bg-white text-[#264EE4] shadow-sm' 
+														: 'text-gray-600 hover:text-gray-800'
+												}`}
+											>
+												Email
+											</button>
+										</div>
+									</FadeIn>
+
+									<form className="space-y-4 sm:space-y-6" onSubmit={handleLogin}>
+										{/* Enhanced Login Field */}
+										<FadeIn delay={0.8}>
 												<div className="space-y-3">
 													<label className="text-sm font-semibold text-gray-700 flex items-center gap-2">
 														<span className="w-2 h-2 bg-[#264EE4] rounded-full" />
-														Agent Code
+														{loginMode === 'email' ? 'Email Address' : 'Agent Code'}
 													</label>
-													<div className="flex gap-2 sm:gap-3">
-														<input 
-															value="AGT" 
-															disabled 
-															className="w-16 h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-gray-200 bg-gray-50 text-center text-gray-600 font-semibold text-xs sm:text-sm shadow-sm" 
-														/>
-														<div className="flex-1 relative">
+													
+													{loginMode === 'agent_code' ? (
+														<div className="flex gap-2 sm:gap-3">
+															<input 
+																value="AGT" 
+																disabled 
+																className="w-16 h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 border-gray-200 bg-gray-50 text-center text-gray-600 font-semibold text-xs sm:text-sm shadow-sm" 
+															/>
+															<div className="flex-1 relative">
+																<input 
+																	name="agent_code_suffix" 
+																	value={formData.agent_code_suffix} 
+																	onChange={handleInputChange} 
+																	placeholder="00001" 
+																	maxLength={5} 
+																	pattern="[0-9]*" 
+																	inputMode="numeric" 
+																	className={`w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300 tracking-widest ${
+																		getFieldError('agent_code_suffix') ? 'border-red-300 focus:border-red-400 focus:ring-red-400/20' : 'border-gray-200 focus:border-[#264EE4]'
+																	}`}
+																/>
+																{formData.agent_code_suffix.length === 5 && !getFieldError('agent_code_suffix') && (
+																	<motion.div 
+																		initial={{ opacity: 0, scale: 0 }}
+																		animate={{ opacity: 1, scale: 1 }}
+																		className="absolute right-3 top-1/2 -translate-y-1/2 text-green-500"
+																	>
+																		<CheckCircle2 className="w-4 h-4" />
+																	</motion.div>
+																)}
+															</div>
+														</div>
+													) : (
+														<div className="relative">
 															<input 
 																name="agent_code_suffix" 
+																type="email"
 																value={formData.agent_code_suffix} 
 																onChange={handleInputChange} 
-																placeholder="00001" 
-																maxLength={5} 
-																pattern="[0-9]*" 
-																inputMode="numeric" 
-																className={`w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300 tracking-widest ${
+																placeholder="agent@khholdings.com" 
+																className={`w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300 ${
 																	getFieldError('agent_code_suffix') ? 'border-red-300 focus:border-red-400 focus:ring-red-400/20' : 'border-gray-200 focus:border-[#264EE4]'
 																}`}
 															/>
-															{formData.agent_code_suffix.length === 5 && !getFieldError('agent_code_suffix') && (
+															{formData.agent_code_suffix.includes('@') && !getFieldError('agent_code_suffix') && (
 																<motion.div 
 																	initial={{ opacity: 0, scale: 0 }}
 																	animate={{ opacity: 1, scale: 1 }}
@@ -420,7 +495,7 @@ export default function LoginPage() {
 																</motion.div>
 															)}
 														</div>
-													</div>
+													)}
 													{/* Field-specific error */}
 													<AnimatePresence>
 														{getFieldError('agent_code_suffix') && (

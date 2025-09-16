@@ -23,7 +23,7 @@ import { NotificationBell } from "../(ui)/components/NotificationBell";
 import { MemberDetails, MemberProfile } from "../(ui)/components/MemberDetails";
 import { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext";
-import { apiService, Member, DashboardStats, RecentActivity, PerformanceData } from "../services/api";
+import { apiService, Member, DashboardStats, RecentActivity, PerformanceData } from "@/app/services/api";
 
 // Family Icon using the PNG image
 function FamilyIcon({ className }: { className?: string }) {

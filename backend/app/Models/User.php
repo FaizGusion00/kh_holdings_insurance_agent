@@ -6,27 +6,42 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
-use Laravel\Sanctum\HasApiTokens;
+use Tymon\JWTAuth\Contracts\JWTSubject;
 
-class User extends Authenticatable
+/**
+ * User Model for Insurance MLM System
+ * 
+ * This model handles both regular clients and agents in the MLM system.
+ * Agents have agent_codes and can refer new users to earn commissions.
+ */
+class User extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable, HasApiTokens, SoftDeletes;
+    use HasFactory, Notifiable, SoftDeletes;
 
     /**
      * The attributes that are mass assignable.
-     *
-     * @var array<int, string>
      */
     protected $fillable = [
-        'name',
-        'email',
-        'password',
-        'agent_number',
         'agent_code',
         'referrer_code',
-        'referrer_id',
+        'name',
+        'email',
         'phone_number',
         'nric',
+        'race',
+        'date_of_birth',
+        'gender',
+        'occupation',
+        'height_cm',
+        'weight_kg',
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_relationship',
+        'medical_consultation_2_years',
+        'serious_illness_history',
+        'insurance_rejection_history',
+        'serious_injury_history',
+        'relationship_with_agent',
         'address',
         'city',
         'state',
@@ -35,44 +50,17 @@ class User extends Authenticatable
         'bank_account_number',
         'bank_account_owner',
         'mlm_level',
-        'total_commission_earned',
         'monthly_commission_target',
         'status',
-        'phone_verified_at',
-        'mlm_activation_date',
-        // Plan and Policy Information (consolidated from clients)
         'plan_name',
         'payment_mode',
         'medical_card_type',
         'customer_type',
-        'registration_id',
-        // Demographics (consolidated from members)
-        'race',
-        'date_of_birth',
-        'gender',
-        'occupation',
-        'height_cm',
-        'weight_kg',
-        // Emergency Contact
-        'emergency_contact_name',
-        'emergency_contact_phone',
-        'emergency_contact_relationship',
-        // Medical History
-        'medical_consultation_2_years',
-        'serious_illness_history',
-        'insurance_rejection_history',
-        'serious_injury_history',
-        // Registration and Financial Info
-        'registration_date',
-        'relationship_with_agent',
-        'balance',
-        'wallet_balance',
+        'password',
     ];
 
     /**
      * The attributes that should be hidden for serialization.
-     *
-     * @var array<int, string>
      */
     protected $hidden = [
         'password',
@@ -81,95 +69,55 @@ class User extends Authenticatable
 
     /**
      * Get the attributes that should be cast.
-     *
-     * @return array<string, string>
      */
     protected function casts(): array
     {
         return [
+            'date_of_birth' => 'date',
             'email_verified_at' => 'datetime',
             'phone_verified_at' => 'datetime',
+            'registration_date' => 'datetime',
             'mlm_activation_date' => 'datetime',
             'password' => 'hashed',
-            'total_commission_earned' => 'decimal:2',
-            'monthly_commission_target' => 'decimal:2',
-            'date_of_birth' => 'date',
-            'registration_date' => 'date',
             'medical_consultation_2_years' => 'boolean',
-            'serious_illness_history' => 'boolean',
             'insurance_rejection_history' => 'boolean',
-            'serious_injury_history' => 'boolean',
             'balance' => 'decimal:2',
             'wallet_balance' => 'decimal:2',
+            'total_commission_earned' => 'decimal:2',
+            'monthly_commission_target' => 'decimal:2',
+            'height_cm' => 'integer',
+            'weight_kg' => 'decimal:2',
+            'mlm_level' => 'integer',
         ];
     }
 
-    /**
-     * Get the referral record for this agent.
-     */
-    public function referral()
+    // JWT Auth Methods
+    public function getJWTIdentifier()
     {
-        return $this->hasOne(Referral::class);
+        return $this->getKey();
+    }
+
+    public function getJWTCustomClaims()
+    {
+        return [
+            'customer_type' => $this->customer_type,
+            'agent_code' => $this->agent_code,
+            'mlm_level' => $this->mlm_level,
+        ];
+    }
+
+    // Relationships
+    
+    /**
+     * Get the user's insurance policies
+     */
+    public function memberPolicies()
+    {
+        return $this->hasMany(MemberPolicy::class);
     }
 
     /**
-     * Get the commissions earned by this agent.
-     */
-    public function commissions()
-    {
-        return $this->hasMany(Commission::class);
-    }
-
-    /**
-     * Get the agent who referred this user.
-     */
-    public function referrer()
-    {
-        return $this->belongsTo(User::class, 'referrer_code', 'agent_code');
-    }
-
-    /**
-     * Get the agents referred by this user.
-     */
-    public function referredAgents()
-    {
-        return $this->hasMany(User::class, 'referrer_code', 'agent_code');
-    }
-
-    /**
-     * Get commissions earned from referring this user.
-     */
-    public function commissionEarnings()
-    {
-        return $this->hasMany(Commission::class, 'referrer_id');
-    }
-
-    /**
-     * Get the agent's wallet.
-     */
-    public function wallet()
-    {
-        return $this->hasOne(AgentWallet::class);
-    }
-
-    /**
-     * Get all wallet transactions.
-     */
-    public function walletTransactions()
-    {
-        return $this->hasMany(WalletTransaction::class);
-    }
-
-    /**
-     * Get medical insurance registration associated with this user.
-     */
-    public function medicalInsuranceRegistration()
-    {
-        return $this->belongsTo(MedicalInsuranceRegistration::class, 'registration_id');
-    }
-
-    /**
-     * Get payment transactions for this user.
+     * Get the user's payment transactions
      */
     public function paymentTransactions()
     {
@@ -177,108 +125,130 @@ class User extends Authenticatable
     }
 
     /**
-     * Get users registered by this agent (for agent dashboard).
+     * Get the user's wallet transactions
      */
-    public function registeredUsers()
+    public function walletTransactions()
     {
-        return $this->hasMany(User::class, 'referrer_id');
+        return $this->hasMany(WalletTransaction::class);
     }
 
     /**
-     * Generate a unique agent code.
+     * Get the user's withdrawal requests
      */
-    public static function generateAgentCode(): string
+    public function withdrawalRequests()
     {
-        // Determine the next sequential code based on the current maximum
-        $last = self::whereNotNull('agent_code')
-            ->where('agent_code', 'like', 'AGT%')
-            ->select('agent_code')
-            ->orderByDesc('agent_code')
-            ->first();
+        return $this->hasMany(WithdrawalRequest::class);
+    }
 
-        $nextNumber = 1;
-        if ($last && preg_match('/^AGT(\d{5})$/', $last->agent_code, $m)) {
-            $nextNumber = intval($m[1]) + 1;
-        }
+    /**
+     * Get the user's notifications
+     */
+    public function notifications()
+    {
+        return $this->hasMany(Notification::class);
+    }
 
-        $code = 'AGT' . str_pad((string)$nextNumber, 5, '0', STR_PAD_LEFT);
+    /**
+     * Get the agent who referred this user
+     */
+    public function referrer()
+    {
+        return $this->belongsTo(User::class, 'referrer_code', 'agent_code');
+    }
 
-        // Ensure uniqueness just in case of race
-        while (self::where('agent_code', $code)->exists()) {
-            $nextNumber++;
-            $code = 'AGT' . str_pad((string)$nextNumber, 5, '0', STR_PAD_LEFT);
-        }
+    /**
+     * Get users referred by this user (downline)
+     */
+    public function referrals()
+    {
+        return $this->hasMany(User::class, 'referrer_code', 'agent_code');
+    }
 
+    // Scopes
+
+    /**
+     * Scope for active users only
+     */
+    public function scopeActive($query)
+    {
+        return $query->where('status', 'active');
+    }
+
+    /**
+     * Scope for agents only
+     */
+    public function scopeAgents($query)
+    {
+        return $query->where('customer_type', 'agent');
+    }
+
+    /**
+     * Scope for clients only
+     */
+    public function scopeClients($query)
+    {
+        return $query->where('customer_type', 'client');
+    }
+
+    /**
+     * Scope for users by MLM level
+     */
+    public function scopeByMlmLevel($query, $level)
+    {
+        return $query->where('mlm_level', $level);
+    }
+
+    // Helper Methods
+
+    /**
+     * Check if user is an agent
+     */
+    public function isAgent()
+    {
+        return $this->customer_type === 'agent';
+    }
+
+    /**
+     * Check if user is a client
+     */
+    public function isClient()
+    {
+        return $this->customer_type === 'client';
+    }
+
+    /**
+     * Check if user is active
+     */
+    public function isActive()
+    {
+        return $this->status === 'active';
+    }
+
+    /**
+     * Generate unique agent code
+     */
+    public static function generateAgentCode()
+    {
+        do {
+            $code = 'AG' . strtoupper(uniqid());
+        } while (self::where('agent_code', $code)->exists());
+        
         return $code;
     }
 
     /**
-     * Generate a unique agent number.
+     * Get user's total downline count
      */
-    public static function generateAgentNumber(): string
+    public function getDownlineCount()
     {
-        // Determine the next sequential agent number
-        $last = self::whereNotNull('agent_number')
-            ->where('agent_number', 'REGEXP', '^[0-9]{6}$')
-            ->select('agent_number')
-            ->orderByDesc('agent_number')
-            ->first();
-
-        $nextNumber = 1;
-        if ($last && is_numeric($last->agent_number)) {
-            $nextNumber = intval($last->agent_number) + 1;
-        }
-
-        $agentNumber = str_pad((string)$nextNumber, 6, '0', STR_PAD_LEFT);
-
-        // Ensure uniqueness
-        while (self::where('agent_number', $agentNumber)->exists()) {
-            $nextNumber++;
-            $agentNumber = str_pad((string)$nextNumber, 6, '0', STR_PAD_LEFT);
-        }
-
-        return $agentNumber;
+        return $this->referrals()->count();
     }
 
     /**
-     * Check if user is an active agent.
+     * Get user's active policies count
      */
-    public function isActiveAgent(): bool
+    public function getActivePoliciesCount()
     {
-        return $this->status === 'active' && !empty($this->agent_code) && !empty($this->mlm_activation_date);
-    }
-
-    /**
-     * Get full name for display.
-     */
-    public function getFullNameAttribute(): string
-    {
-        return $this->name;
-    }
-
-    /**
-     * Get display status.
-     */
-    public function getStatusDisplayAttribute(): string
-    {
-        return ucfirst($this->status);
-    }
-
-    /**
-     * Scope to get only active agents.
-     */
-    public function scopeActiveAgents($query)
-    {
-        return $query->where('status', 'active')
-                    ->whereNotNull('agent_code')
-                    ->whereNotNull('mlm_activation_date');
-    }
-
-    /**
-     * Scope to get only users with plans (customers).
-     */
-    public function scopeWithPlans($query)
-    {
-        return $query->whereNotNull('plan_name');
+        return $this->memberPolicies()->where('status', 'active')->count();
     }
 }
