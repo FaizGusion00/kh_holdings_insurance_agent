@@ -125,7 +125,7 @@ class LaravelApiService {
 
   // Helper method to make authenticated requests
   private async makeRequest<T>(
-    url: string, 
+    url: string,
     options: RequestInit = {}
   ): Promise<ApiResponse<T>> {
     const headers: HeadersInit = {
@@ -138,19 +138,45 @@ class LaravelApiService {
       (headers as any)['Authorization'] = `Bearer ${this.token}`;
     }
 
-    try {
+    const doFetch = async (): Promise<{ response: Response; data: any }> => {
       const response = await fetch(`${this.baseUrl}${url}`, {
         ...options,
         headers,
       });
+      let data: any = null;
+      try {
+        data = await response.json();
+      } catch (_) {
+        // ignore JSON parse errors
+      }
+      return { response, data };
+    };
 
-      const data = await response.json();
+    try {
+      // First attempt
+      let { response, data } = await doFetch();
 
-      if (!response.ok) {
-        throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      // If unauthorized, try refreshing token once and retry
+      if (response.status === 401 && this.token) {
+        const refresh = await this.refreshToken();
+        if (refresh.status === 'success') {
+          // Rebuild headers with new token
+          if (this.token) {
+            (headers as any)['Authorization'] = `Bearer ${this.token}`;
+          }
+          ({ response, data } = await doFetch());
+        }
       }
 
-      return data;
+      if (!response.ok) {
+        // For validation/auth errors, bubble backend payload to caller instead of throwing
+        if (data && (response.status === 400 || response.status === 401 || response.status === 422)) {
+          return data as ApiResponse<T>;
+        }
+        throw new Error((data && data.message) || `HTTP error! status: ${response.status}`);
+      }
+
+      return data as ApiResponse<T>;
     } catch (error) {
       console.error('API request failed:', error);
       return {
@@ -199,12 +225,14 @@ class LaravelApiService {
     return response;
   }
 
-  async login(email: string, password: string): Promise<ApiResponse<{ user: User; access_token: string; token_type: string; expires_in: number }>> {
+  async login(identifier: string, password: string): Promise<ApiResponse<{ user: User; access_token: string; token_type: string; expires_in: number }>> {
+    const isAgentCode = /^AGT\d{5}$/i.test(identifier.trim());
+    const payload: any = isAgentCode ? { agent_code: identifier.trim().toUpperCase(), password } : { email: identifier.trim(), password };
     const response = await this.makeRequest<{ user: User; access_token: string; token_type: string; expires_in: number }>(
       '/auth/login',
       {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify(payload),
       }
     );
 

@@ -56,6 +56,13 @@ class User extends Authenticatable implements JWTSubject
         'payment_mode',
         'medical_card_type',
         'customer_type',
+        'current_insurance_plan_id',
+        'policy_start_date',
+        'policy_end_date',
+        'next_payment_due',
+        'policy_status',
+        'premium_amount',
+        'current_payment_mode',
         'password',
     ];
 
@@ -201,6 +208,38 @@ class User extends Authenticatable implements JWTSubject
     // Helper Methods
 
     /**
+     * Generate a unique agent code in format AGT + 5 digits
+     */
+    public static function generateAgentCode()
+    {
+        do {
+            // Generate random 5 digits
+            $digits = str_pad(mt_rand(10000, 99999), 5, '0', STR_PAD_LEFT);
+            $agentCode = 'AGT' . $digits;
+            
+            // Check if this agent code already exists
+            $exists = self::where('agent_code', $agentCode)->exists();
+        } while ($exists);
+        
+        return $agentCode;
+    }
+
+    /**
+     * Auto-assign agent code when creating new agents
+     */
+    public static function boot()
+    {
+        parent::boot();
+        
+        static::creating(function ($user) {
+            // Auto-generate agent code for new agents
+            if ($user->customer_type === 'agent' && empty($user->agent_code)) {
+                $user->agent_code = self::generateAgentCode();
+            }
+        });
+    }
+
+    /**
      * Check if user is an agent
      */
     public function isAgent()
@@ -224,17 +263,6 @@ class User extends Authenticatable implements JWTSubject
         return $this->status === 'active';
     }
 
-    /**
-     * Generate unique agent code
-     */
-    public static function generateAgentCode()
-    {
-        do {
-            $code = 'AG' . strtoupper(uniqid());
-        } while (self::where('agent_code', $code)->exists());
-        
-        return $code;
-    }
 
     /**
      * Get user's total downline count

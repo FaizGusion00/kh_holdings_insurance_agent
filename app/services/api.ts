@@ -216,12 +216,10 @@ class ApiServiceBridge {
   // AUTHENTICATION
   // =====================
 
-  async login(agentCode: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
+  async login(identifier: string, password: string): Promise<ApiResponse<{ user: User; token: string }>> {
     try {
-      // Convert agent code format if needed (AGT12345 -> email format or keep as is)
-      const email = agentCode.includes('@') ? agentCode : `${agentCode.toLowerCase()}@khholdings.com`;
-      
-      const response = await laravelApi.login(email, password);
+      // Pass through identifier directly; backend accepts email or AGT code
+      const response = await laravelApi.login(identifier, password);
       
       if (response.status === 'success' && response.data) {
         // Convert Laravel user format to frontend format
@@ -473,6 +471,7 @@ class ApiServiceBridge {
     // Return mock payment config for now
     return {
       status: 'success',
+      success: true,
       data: {
         curlec: {
           key_id: process.env.NEXT_PUBLIC_CURLEC_KEY_ID,
@@ -486,6 +485,7 @@ class ApiServiceBridge {
     // Return mock registration status for now
     return {
       status: 'success',
+      success: true,
       data: {
         id: registrationId,
         status: 'pending_payment',
@@ -495,20 +495,61 @@ class ApiServiceBridge {
   }
 
   async createMedicalInsurancePaymentOrderForAllCustomers(data: any): Promise<ApiResponse<any>> {
-    // Return mock payment calculation for now
-    return {
-      status: 'success',
-      data: {
-        total_amount: 90.00, // Default MediPlan Coop price
-        breakdown: [
-          {
-            plan: 'MediPlan Coop',
-            amount: 90.00,
-            customer: 'Primary Customer'
+    try {
+      // If this is just a calculation request, return the pre-fetched totals from registration modal
+      if (data.calculate_only && (data.total_amount || data.breakdown)) {
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            total_amount: data.total_amount,
+            breakdown: data.breakdown || []
           }
-        ]
+        };
       }
-    };
+
+      // Create bulk payment using the registration_id
+      const response = await laravelApi.createBulkPayment({
+        registration_id: data.registration_id,
+        payment_method: 'curlec',
+        return_url: data.return_url,
+        cancel_url: data.cancel_url
+      });
+
+      if (response.status === 'success' && response.data) {
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            total_amount: response.data.payment?.amount,
+            // 'breakdown' may not exist on response.data, so default to empty array if not present
+            breakdown: response.data.payment?.breakdown || [],
+            checkout_config: {
+              amount: response.data.payment?.amount * 100, // Convert to cents for Razorpay
+              currency: 'MYR',
+              order_id: response.data.payment?.gateway_order_id,
+              name: 'KH Holdings Insurance',
+              description: 'Medical Insurance Premium Payment',
+              prefill: {
+                email: '', // Will be filled by payment gateway
+                contact: ''
+              },
+              theme: {
+                color: '#3399cc'
+              }
+            }
+          }
+        };
+      }
+
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Payment creation failed'
+      };
+    }
   }
 
   // =====================
@@ -563,6 +604,7 @@ class ApiServiceBridge {
         
         return {
           status: 'success',
+          success: true,
           data: plans
         };
       }
@@ -571,6 +613,7 @@ class ApiServiceBridge {
     } catch (error) {
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'Failed to get medical insurance plans'
       };
     }
@@ -728,8 +771,8 @@ class ApiServiceBridge {
         phone_number: registrationData.phone_number,
         nric: registrationData.nric,
         race: registrationData.race,
-        date_of_birth: new Date(Date.now() - (25 * 365 * 24 * 60 * 60 * 1000)).toISOString().split('T')[0], // Default to 25 years old
-        gender: 'Male', // Default, should be added to form
+        date_of_birth: registrationData.date_of_birth, // use real DOB from form
+        gender: registrationData.gender, // use real gender from form
         occupation: registrationData.occupation || 'Not specified',
         height_cm: registrationData.height_cm,
         weight_kg: registrationData.weight_kg,
@@ -737,9 +780,9 @@ class ApiServiceBridge {
         emergency_contact_phone: registrationData.emergency_contact_phone,
         emergency_contact_relationship: registrationData.emergency_contact_relationship,
         medical_consultation_2_years: registrationData.medical_consultation_2_years,
-        serious_illness_history: registrationData.serious_illness_history || '',
+        serious_illness_history: registrationData.serious_illness_history || false,
         insurance_rejection_history: registrationData.insurance_rejection_history,
-        serious_injury_history: registrationData.serious_injury_history || '',
+        serious_injury_history: registrationData.serious_injury_history || false,
         address: registrationData.address || 'To be updated',
         city: registrationData.city || 'Kuala Lumpur',
         state: registrationData.state || 'Selangor',
@@ -751,26 +794,74 @@ class ApiServiceBridge {
         password_confirmation: registrationData.password
       };
 
-      const response = await laravelApi.registerClient(clientData);
+      // Convert single client to bulk registration format
+      const clients = [{
+        name: clientData.name,
+        email: clientData.email,
+        phone_number: clientData.phone_number,
+        nric: clientData.nric,
+        race: clientData.race,
+        date_of_birth: clientData.date_of_birth,
+        gender: clientData.gender,
+        occupation: clientData.occupation,
+        address: clientData.address,
+        city: clientData.city,
+        state: clientData.state,
+        postal_code: clientData.postal_code,
+        emergency_contact_name: clientData.emergency_contact_name,
+        emergency_contact_phone: clientData.emergency_contact_phone,
+        emergency_contact_relationship: clientData.emergency_contact_relationship,
+        medical_consultation_2_years: clientData.medical_consultation_2_years,
+        serious_illness_history: clientData.serious_illness_history,
+        insurance_rejection_history: clientData.insurance_rejection_history,
+        serious_injury_history: clientData.serious_injury_history,
+        insurance_plan_id: this.getInsurancePlanIdByName(registrationData.plan_type),
+        payment_mode: clientData.payment_mode,
+        medical_card_type: clientData.medical_card_type,
+        password: clientData.password
+      }];
+
+      // Use NEW bulk registration endpoint (creates pending registration, NOT users)
+      const response = await laravelApi.registerBulkClients({ clients });
       
       if (response.status === 'success' && response.data) {
         return {
           status: 'success',
-          data: { id: response.data.client?.id || 1 }
+          success: true,
+          data: {
+            id: response.data.registration_id, // Map to expected format
+            registration_id: response.data.registration_id,
+            total_amount: response.data.total_amount,
+            client_count: clients.length
+          }
         };
       }
       
       return {
         status: 'error',
+        success: false,
         message: response.message || 'Registration failed',
         errors: response.errors
       };
     } catch (error) {
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'Registration failed'
       };
     }
+  }
+
+  // Helper method to map plan names to IDs
+  private getInsurancePlanIdByName(planName: string): number {
+    // Map plan names to IDs based on seeded data
+    const planMapping: Record<string, number> = {
+      'MediPlan Coop': 1,
+      'Senior Care Plan Gold 270': 2,
+      'Senior Care Plan Diamond 370': 3
+    };
+    
+    return planMapping[planName] || 1; // Default to MediPlan Coop
   }
 
   async registerMedicalInsuranceExternal(registrationData: any): Promise<ApiResponse<any>> {

@@ -36,6 +36,12 @@ class TestUserSeeder extends Seeder
                 'city' => 'Kuala Lumpur',
                 'state' => 'Selangor',
                 'postal_code' => '50000',
+                'emergency_contact_name' => 'Ahmad Rahman',
+                'emergency_contact_phone' => '+60123456799',
+                'emergency_contact_relationship' => 'Brother',
+                'bank_name' => 'Maybank',
+                'bank_account_number' => '1234567890',
+                'bank_account_owner' => 'Test Agent',
                 'referrer_code' => null, // Top level agent
                 'email_verified_at' => now(),
             ]
@@ -64,6 +70,12 @@ class TestUserSeeder extends Seeder
                 'city' => 'Petaling Jaya',
                 'state' => 'Selangor',
                 'postal_code' => '47300',
+                'emergency_contact_name' => 'Lee Wei Ming',
+                'emergency_contact_phone' => '+60123456777',
+                'emergency_contact_relationship' => 'Husband',
+                'bank_name' => 'CIMB Bank',
+                'bank_account_number' => '9876543210',
+                'bank_account_owner' => 'Test Client',
                 'referrer_code' => 'AGT12345', // Referred by test agent
                 'email_verified_at' => now(),
             ]
@@ -92,6 +104,12 @@ class TestUserSeeder extends Seeder
                 'city' => 'Shah Alam',
                 'state' => 'Selangor',
                 'postal_code' => '40000',
+                'emergency_contact_name' => 'Raj Kumar',
+                'emergency_contact_phone' => '+60123456766',
+                'emergency_contact_relationship' => 'Father',
+                'bank_name' => 'Public Bank',
+                'bank_account_number' => '5678901234',
+                'bank_account_owner' => 'Second Level Agent',
                 'referrer_code' => 'AGT12345', // Referred by first agent
                 'email_verified_at' => now(),
             ]

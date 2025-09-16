@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -102,8 +103,10 @@ class AuthController extends Controller
      */
     public function login(Request $request)
     {
+        // Accept either email or agent_code with password
         $validator = Validator::make($request->all(), [
-            'email' => 'required|email',
+            'email' => 'nullable|email',
+            'agent_code' => 'nullable|string',
             'password' => 'required|string|min:8',
         ]);
 
@@ -115,23 +118,51 @@ class AuthController extends Controller
             ], 422);
         }
 
-        $credentials = $request->only('email', 'password');
+        if (!$request->filled('email') && !$request->filled('agent_code')) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => [ 'identifier' => ['Provide either email or agent code.'] ]
+            ], 422);
+        }
 
-        try {
-            if (!$token = JWTAuth::attempt($credentials)) {
+        // Email login path (default)
+        if ($request->filled('email')) {
+            $credentials = $request->only('email', 'password');
+            try {
+                if (!$token = JWTAuth::attempt($credentials)) {
+                    return response()->json([
+                        'status' => 'error',
+                        'message' => 'Invalid credentials'
+                    ], 401);
+                }
+            } catch (JWTException $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Could not create token'
+                ], 500);
+            }
+
+            $user = Auth::user();
+        } else {
+            // Agent code login path
+            $user = User::where('agent_code', $request->agent_code)->first();
+            if (!$user || !Hash::check($request->password, $user->password)) {
                 return response()->json([
                     'status' => 'error',
                     'message' => 'Invalid credentials'
                 ], 401);
             }
-        } catch (JWTException $e) {
-            return response()->json([
-                'status' => 'error',
-                'message' => 'Could not create token'
-            ], 500);
-        }
 
-        $user = Auth::user();
+            try {
+                $token = JWTAuth::fromUser($user);
+            } catch (JWTException $e) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Could not create token'
+                ], 500);
+            }
+        }
 
         return response()->json([
             'status' => 'success',
@@ -143,6 +174,107 @@ class AuthController extends Controller
                 'expires_in' => config('jwt.ttl') * 60
             ]
         ]);
+    }
+
+    /**
+     * Register a new agent with auto-generated agent code
+     */
+    public function registerAgent(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255|unique:users',
+            'phone_number' => 'required|string|max:20',
+            'nric' => 'required|string|unique:users',
+            'password' => 'required|string|min:8|confirmed',
+            'date_of_birth' => 'required|date',
+            'gender' => 'required|in:Male,Female',
+            'race' => 'required|in:Malay,Chinese,Indian,Other',
+            'occupation' => 'required|string|max:255',
+            'address' => 'required|string',
+            'city' => 'required|string|max:100',
+            'state' => 'required|string|max:100',
+            'postal_code' => 'required|string|max:10',
+            'emergency_contact_name' => 'required|string|max:255',
+            'emergency_contact_phone' => 'required|string|max:20',
+            'emergency_contact_relationship' => 'required|string|max:100',
+            'bank_name' => 'nullable|string|max:255',
+            'bank_account_number' => 'nullable|string|max:50',
+            'bank_account_owner' => 'nullable|string|max:255',
+            'referrer_code' => 'nullable|exists:users,agent_code', // Optional referrer
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Validation failed',
+                'errors' => $validator->errors()
+            ], 422);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Calculate MLM level based on referrer
+            $mlmLevel = 1; // Default to level 1
+            if ($request->referrer_code) {
+                $referrer = User::where('agent_code', $request->referrer_code)->first();
+                if ($referrer) {
+                    $mlmLevel = $referrer->mlm_level + 1;
+                }
+            }
+
+            // Create the agent (agent_code will be auto-generated)
+            $agent = User::create([
+                'name' => $request->name,
+                'email' => $request->email,
+                'phone_number' => $request->phone_number,
+                'nric' => $request->nric,
+                'password' => Hash::make($request->password),
+                'date_of_birth' => $request->date_of_birth,
+                'gender' => $request->gender,
+                'race' => $request->race,
+                'occupation' => $request->occupation,
+                'address' => $request->address,
+                'city' => $request->city,
+                'state' => $request->state,
+                'postal_code' => $request->postal_code,
+                'emergency_contact_name' => $request->emergency_contact_name,
+                'emergency_contact_phone' => $request->emergency_contact_phone,
+                'emergency_contact_relationship' => $request->emergency_contact_relationship,
+                'bank_name' => $request->bank_name,
+                'bank_account_number' => $request->bank_account_number,
+                'bank_account_owner' => $request->bank_account_owner,
+                'customer_type' => 'agent',
+                'status' => 'pending_verification', // Needs activation
+                'mlm_level' => $mlmLevel,
+                'referrer_code' => $request->referrer_code,
+                'wallet_balance' => 0.00,
+                'total_commission_earned' => 0.00,
+                'registration_date' => now(),
+                'email_verified_at' => now(), // Auto-verify for simplicity
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Agent registered successfully',
+                'data' => [
+                    'agent' => $agent,
+                    'agent_code' => $agent->agent_code, // Return the auto-generated code
+                    'mlm_level' => $agent->mlm_level
+                ]
+            ], 201);
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration failed: ' . $e->getMessage(),
+                'error' => $e->getMessage()
+            ], 500);
+        }
     }
 
     /**

@@ -424,12 +424,19 @@ class PaymentController extends Controller
     {
         $gatewayResponse = json_decode($payment->gateway_response, true);
         
+        // Check if this is a new pending registration system
+        if (isset($gatewayResponse['pending_registration_id'])) {
+            $this->processNewBulkRegistration($payment, $gatewayResponse);
+            return;
+        }
+        
+        // Legacy support for old system
         if (!$gatewayResponse || !isset($gatewayResponse['client_ids']) || !isset($gatewayResponse['policy_ids'])) {
             \Log::error('Invalid bulk payment gateway_response: ' . $payment->id);
             return;
         }
 
-        // Activate all clients and policies
+        // Activate all clients and policies (legacy)
         $clientIds = $gatewayResponse['client_ids'];
         $policyIds = $gatewayResponse['policy_ids'];
         
@@ -449,6 +456,200 @@ class PaymentController extends Controller
         foreach ($policies as $policy) {
             $this->processBulkCommissions($policy, $payment);
         }
+    }
+
+    private function processNewBulkRegistration($payment, $gatewayResponse)
+    {
+        try {
+            DB::beginTransaction();
+
+            // Get pending registration
+            $pendingRegistration = \App\Models\PendingRegistration::findOrFail($gatewayResponse['pending_registration_id']);
+            
+            if ($pendingRegistration->status !== 'pending_payment') {
+                \Log::error('Pending registration already processed: ' . $pendingRegistration->id);
+                return;
+            }
+
+            $agent = $pendingRegistration->agent;
+            $clientsData = $pendingRegistration->clients_data;
+            
+            $createdClients = [];
+            $createdPolicies = [];
+
+            // Now create the actual users and policies
+            foreach ($clientsData as $clientData) {
+                // Get the insurance plan
+                $plan = InsurancePlan::findOrFail($clientData['insurance_plan_id']);
+
+                // Calculate the agent's MLM level for this client
+                $clientLevel = $this->calculateClientLevel($agent);
+
+                // Create the client user
+                $client = User::create([
+                    'referrer_code' => $agent->agent_code,
+                    'name' => $clientData['name'],
+                    'email' => $clientData['email'],
+                    'phone_number' => $clientData['phone_number'],
+                    'nric' => $clientData['nric'],
+                    'race' => $clientData['race'] ?? 'Other',
+                    'date_of_birth' => $clientData['date_of_birth'],
+                    'gender' => $clientData['gender'],
+                    'occupation' => $clientData['occupation'] ?? 'Not specified',
+                    'address' => $clientData['address'] ?? '',
+                    'city' => $clientData['city'] ?? '',
+                    'state' => $clientData['state'] ?? '',
+                    'postal_code' => $clientData['postal_code'] ?? '',
+                    'emergency_contact_name' => $clientData['emergency_contact_name'] ?? '',
+                    'emergency_contact_phone' => $clientData['emergency_contact_phone'] ?? '',
+                    'emergency_contact_relationship' => $clientData['emergency_contact_relationship'] ?? '',
+                    'medical_consultation_2_years' => $clientData['medical_consultation_2_years'] ?? false,
+                    'serious_illness_history' => ($clientData['serious_illness_history'] ?? false) ? json_encode($clientData['serious_illness_history']) : null,
+                    'insurance_rejection_history' => $clientData['insurance_rejection_history'] ?? false,
+                    'serious_injury_history' => ($clientData['serious_injury_history'] ?? false) ? json_encode($clientData['serious_injury_history']) : null,
+                    'password' => bcrypt($clientData['password']),
+                    'customer_type' => 'client',
+                    'status' => 'active', // Immediately active after payment
+                    'mlm_level' => 0, // Clients are level 0
+                    'registration_date' => now(),
+                    // Insurance tracking fields
+                    'current_insurance_plan_id' => $plan->id,
+                    'policy_start_date' => now(),
+                    'policy_end_date' => $this->calculateEndDate($clientData['payment_mode']),
+                    'next_payment_due' => $this->calculateNextPayment($clientData['payment_mode']),
+                    'policy_status' => 'active',
+                    'premium_amount' => $clientData['premium_amount'],
+                    'current_payment_mode' => $clientData['payment_mode'],
+                ]);
+
+                // Create member policy
+                $policy = MemberPolicy::create([
+                    'user_id' => $client->id,
+                    'insurance_plan_id' => $plan->id,
+                    'policy_number' => MemberPolicy::generatePolicyNumber(),
+                    'payment_mode' => $clientData['payment_mode'],
+                    'premium_amount' => $clientData['premium_amount'],
+                    'medical_card_type' => $clientData['medical_card_type'],
+                    'policy_start_date' => now(),
+                    'policy_end_date' => $this->calculateEndDate($clientData['payment_mode']),
+                    'next_payment_due' => $this->calculateNextPayment($clientData['payment_mode']),
+                    'status' => 'active'
+                ]);
+
+                $createdClients[] = $client;
+                $createdPolicies[] = $policy;
+
+                // Process MLM commissions for this client
+                $this->processNewMLMCommissions($client, $policy, $payment);
+            }
+
+            // Mark pending registration as completed
+            $pendingRegistration->update(['status' => 'payment_completed']);
+
+            DB::commit();
+
+            \Log::info('Successfully processed bulk registration', [
+                'registration_id' => $pendingRegistration->id,
+                'clients_created' => count($createdClients),
+                'policies_created' => count($createdPolicies)
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollback();
+            \Log::error('Failed to process bulk registration: ' . $e->getMessage(), [
+                'payment_id' => $payment->id,
+                'pending_registration_id' => $gatewayResponse['pending_registration_id'] ?? null
+            ]);
+        }
+    }
+
+    private function calculateClientLevel($agent)
+    {
+        // Clients are always level 0, but for future use
+        return 0;
+    }
+
+    private function calculateEndDate($paymentMode)
+    {
+        switch ($paymentMode) {
+            case 'monthly':
+                return now()->addMonth();
+            case 'quarterly':
+                return now()->addMonths(3);
+            case 'semi_annually':
+                return now()->addMonths(6);
+            case 'annually':
+                return now()->addYear();
+            default:
+                return now()->addMonth();
+        }
+    }
+
+    private function calculateNextPayment($paymentMode)
+    {
+        switch ($paymentMode) {
+            case 'monthly':
+                return now()->addMonth();
+            case 'quarterly':
+                return now()->addMonths(3);
+            case 'semi_annually':
+                return now()->addMonths(6);
+            case 'annually':
+                return now()->addYear();
+            default:
+                return now()->addMonth();
+        }
+    }
+
+    private function processNewMLMCommissions($client, $policy, $payment)
+    {
+        $currentAgent = User::where('agent_code', $client->referrer_code)->first();
+        $level = 1;
+        $maxLevels = 5;
+
+        while ($currentAgent && $level <= $maxLevels) {
+            $commissionAmount = $this->calculateCommissionForLevel($policy, $level);
+            
+            if ($commissionAmount > 0) {
+                // Add commission to agent's wallet
+                \App\Http\Controllers\Api\WalletController::addCommission(
+                    $currentAgent->id,
+                    $commissionAmount,
+                    "L{$level} commission from {$client->name} - {$policy->insurancePlan->plan_name}",
+                    $client->id
+                );
+
+                \Log::info("Commission distributed", [
+                    'agent_id' => $currentAgent->id,
+                    'agent_code' => $currentAgent->agent_code,
+                    'level' => $level,
+                    'amount' => $commissionAmount,
+                    'client' => $client->name,
+                    'plan' => $policy->insurancePlan->plan_name
+                ]);
+            }
+
+            // Move to next level in hierarchy
+            if ($currentAgent->referrer_code) {
+                $currentAgent = User::where('agent_code', $currentAgent->referrer_code)->first();
+                $level++;
+            } else {
+                break; // Reached top level
+            }
+        }
+    }
+
+    private function calculateCommissionForLevel($policy, $level)
+    {
+        $plan = $policy->insurancePlan;
+        $paymentMode = $policy->payment_mode;
+        
+        $commissionRate = \App\Models\CommissionRate::where('insurance_plan_id', $plan->id)
+            ->where('payment_mode', $paymentMode)
+            ->where('tier_level', $level)
+            ->first();
+        
+        return $commissionRate ? $commissionRate->commission_amount : 0;
     }
 
     private function processBulkCommissions($policy, $bulkPayment)

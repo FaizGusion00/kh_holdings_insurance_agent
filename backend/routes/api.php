@@ -30,6 +30,7 @@ Route::prefix('v1')->group(function () {
     // Authentication routes
     Route::prefix('auth')->group(function () {
         Route::post('register', [AuthController::class, 'register']);
+        Route::post('register-agent', [AuthController::class, 'registerAgent']); // New agent registration
         Route::post('login', [AuthController::class, 'login']);
         Route::post('forgot-password', [AuthController::class, 'forgotPassword']);
         Route::post('reset-password', [AuthController::class, 'resetPassword']);

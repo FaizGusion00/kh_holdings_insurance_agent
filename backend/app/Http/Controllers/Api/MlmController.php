@@ -238,9 +238,9 @@ class MlmController extends Controller
             DB::beginTransaction();
             
             $agent = Auth::user();
-            $registeredClients = [];
             $totalAmount = 0;
-            $clientPolicies = [];
+            $clientsData = [];
+            $amountBreakdown = [];
 
             foreach ($request->clients as $clientData) {
                 // Check age eligibility for the plan
@@ -251,88 +251,91 @@ class MlmController extends Controller
                     throw new \Exception("Client {$clientData['name']} (age {$age}) is not eligible for plan '{$plan->plan_name}' (age range: {$plan->min_age}-{$plan->max_age})");
                 }
 
-                // Create client user
-                $client = User::create([
-                    'referrer_code' => $agent->agent_code,
-                    'name' => $clientData['name'],
-                    'email' => $clientData['email'],
-                    'phone_number' => $clientData['phone_number'],
-                    'nric' => $clientData['nric'],
-                    'race' => $clientData['race'] ?? 'Other',
-                    'date_of_birth' => $clientData['date_of_birth'],
-                    'gender' => $clientData['gender'],
-                    'occupation' => $clientData['occupation'] ?? 'Not specified',
-                    'address' => $clientData['address'] ?? '',
-                    'city' => $clientData['city'] ?? '',
-                    'state' => $clientData['state'] ?? '',
-                    'postal_code' => $clientData['postal_code'] ?? '',
-                    'emergency_contact_name' => $clientData['emergency_contact_name'] ?? '',
-                    'emergency_contact_phone' => $clientData['emergency_contact_phone'] ?? '',
-                    'emergency_contact_relationship' => $clientData['emergency_contact_relationship'] ?? '',
-                    'medical_consultation_2_years' => $clientData['medical_consultation_2_years'] ?? false,
-                    'serious_illness_history' => ($clientData['serious_illness_history'] ?? false) ? json_encode($clientData['serious_illness_history']) : null,
-                    'insurance_rejection_history' => $clientData['insurance_rejection_history'] ?? false,
-                    'serious_injury_history' => ($clientData['serious_injury_history'] ?? false) ? json_encode($clientData['serious_injury_history']) : null,
-                    'password' => bcrypt($clientData['password']),
-                    'customer_type' => 'client',
-                    'status' => 'pending_verification', // Will be activated after payment
-                    'registration_date' => now(),
-                ]);
-
-                // Calculate premium amount
+                // Calculate premium amount without creating user yet
                 $premiumAmount = $plan->getPriceByMode($clientData['payment_mode']);
                 if (!$premiumAmount) {
                     throw new \Exception("Invalid payment mode for plan {$plan->plan_name}");
                 }
 
-                // Create member policy
-                $policy = MemberPolicy::create([
-                    'user_id' => $client->id,
-                    'insurance_plan_id' => $plan->id,
-                    'policy_number' => MemberPolicy::generatePolicyNumber(),
-                    'payment_mode' => $clientData['payment_mode'],
-                    'premium_amount' => $premiumAmount,
-                    'medical_card_type' => $clientData['medical_card_type'],
-                    'policy_start_date' => now(),
-                    'policy_end_date' => $this->calculateEndDate($clientData['payment_mode']),
-                    'next_payment_due' => $this->calculateNextPayment($clientData['payment_mode']),
-                    'status' => 'pending_payment'
-                ]);
+                // Compute medical card add-on fee (NFC physical card)
+                $cardFee = 0.00;
+                if (!empty($clientData['medical_card_type'])) {
+                    $cardType = strtolower($clientData['medical_card_type']);
+                    if (str_contains($cardType, 'nfc') || str_contains($cardType, 'physical') || str_contains($cardType, 'fizikal')) {
+                        $cardFee = 34.90;
+                    }
+                }
 
-                $registeredClients[] = $client;
-                $clientPolicies[] = $policy;
-                $totalAmount += $premiumAmount;
+                $clientTotal = (float) $premiumAmount + (float) $cardFee;
+
+                // Store client data with plan info and computed amounts
+                $clientData['premium_amount'] = $premiumAmount;
+                $clientData['card_fee'] = $cardFee;
+                $clientData['total_amount'] = $clientTotal;
+                $clientData['plan_name'] = $plan->plan_name;
+                $clientsData[] = $clientData;
+
+                // Breakdown row for UI
+                $amountBreakdown[] = [
+                    'customer_name' => $clientData['name'] ?? 'Customer',
+                    'plan' => $plan->plan_name,
+                    'payment_mode' => $clientData['payment_mode'],
+                    'premium' => (float) $premiumAmount,
+                    'card_fee' => (float) $cardFee,
+                    'total' => (float) $clientTotal,
+                ];
+
+                $totalAmount += $clientTotal;
             }
 
-            // Create a single bulk payment transaction
+            // Generate unique batch ID
+            $batchId = \App\Models\PendingRegistration::generateBatchId();
+
+            // Create pending registration record
+            $pendingRegistration = \App\Models\PendingRegistration::create([
+                'agent_id' => $agent->id,
+                'registration_batch_id' => $batchId,
+                'clients_data' => $clientsData,
+                'total_amount' => $totalAmount,
+                'status' => 'pending_payment',
+                'expires_at' => now()->addHours(24) // Registration expires in 24 hours
+            ]);
+
+            // Create payment transaction linked to pending registration
             $payment = PaymentTransaction::create([
-                'user_id' => $agent->id, // Agent initiates the payment
+                'user_id' => $agent->id,
                 'transaction_id' => PaymentTransaction::generateTransactionId(),
                 'amount' => $totalAmount,
                 'currency' => 'MYR',
                 'payment_method' => 'curlec',
                 'payment_type' => 'premium',
                 'status' => 'pending',
-                'notes' => 'Bulk client registration payment - ' . count($registeredClients) . ' clients',
+                'notes' => 'Bulk client registration payment - ' . count($clientsData) . ' clients',
                 'gateway_response' => json_encode([
-                    'client_ids' => collect($registeredClients)->pluck('id')->toArray(),
-                    'policy_ids' => collect($clientPolicies)->pluck('id')->toArray(),
+                    'pending_registration_id' => $pendingRegistration->id,
+                    'batch_id' => $batchId,
                     'agent_id' => $agent->id,
-                    'type' => 'bulk_registration'
+                    'type' => 'bulk_registration',
+                    'client_count' => count($clientsData)
                 ])
             ]);
+
+            // Link payment transaction to pending registration
+            $pendingRegistration->update(['payment_transaction_id' => $payment->id]);
 
             DB::commit();
 
             return response()->json([
                 'status' => 'success',
-                'message' => 'Clients registered successfully. Please proceed to payment.',
+                'message' => 'Registration prepared successfully. Please proceed to payment.',
                 'data' => [
                     'registration_id' => $payment->id,
-                    'clients' => $registeredClients,
-                    'policies' => $clientPolicies,
+                    'batch_id' => $batchId,
+                    'client_count' => count($clientsData),
                     'total_amount' => $totalAmount,
-                    'payment_transaction' => $payment
+                    'breakdown' => $amountBreakdown,
+                    'payment_transaction' => $payment,
+                    'expires_at' => $pendingRegistration->expires_at
                 ]
             ], 201);
 
@@ -340,7 +343,7 @@ class MlmController extends Controller
             DB::rollback();
             return response()->json([
                 'status' => 'error',
-                'message' => 'Failed to register clients: ' . $e->getMessage(),
+                'message' => 'Failed to prepare registration: ' . $e->getMessage(),
                 'error' => $e->getMessage()
             ], 500);
         }

@@ -627,7 +627,23 @@ export default function MedicalInsuranceRegistrationForm({
         : await apiService.registerMedicalInsurance(payload);
       if (response.success && response.data && response.data.id) {
         setRegistrationId(response.data.id);
-        setShowPaymentPage(true);
+        // Pre-calc total for smoother payment modal display
+        try {
+          const pre = await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
+            registration_id: response.data.id,
+            calculate_only: true
+          });
+          if (pre.success && pre.data) {
+            // Pass the totals to payment modal via state
+            setShowPaymentPage(true);
+            // Local state props are set when rendering the modal below
+            (window as any).__MI_PRECALC__ = { total: pre.data.total_amount, breakdown: pre.data.breakdown || [] };
+          } else {
+            setShowPaymentPage(true);
+          }
+        } catch {
+          setShowPaymentPage(true);
+        }
       } else {
         // Map backend field errors to inline errors
         if (response.errors) {
@@ -1958,6 +1974,8 @@ export default function MedicalInsuranceRegistrationForm({
           isOpen={showPaymentPage}
           onClose={handlePaymentClose}
           onSuccess={handlePaymentSuccess}
+          initialTotalAmount={(window as any).__MI_PRECALC__?.total ?? null}
+          initialBreakdown={(window as any).__MI_PRECALC__?.breakdown ?? []}
         />
       )}
     </AnimatePresence>
