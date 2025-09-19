@@ -2,50 +2,40 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class PaymentTransaction extends Model
 {
-    use HasFactory;
-
     protected $fillable = [
-        'user_id', 'member_policy_id', 'transaction_id', 'gateway_transaction_id',
-        'amount', 'currency', 'payment_method', 'payment_type', 'status',
-        'gateway_response', 'receipt_number', 'paid_at', 'failure_reason', 'notes'
+        'user_id',
+        'plan_id',
+        'policy_id',
+        'gateway',
+        'amount_cents',
+        'currency',
+        'status',
+        'external_ref',
+        'paid_at',
+        'meta',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'amount' => 'decimal:2',
-            'paid_at' => 'datetime',
-            'gateway_response' => 'json',
-        ];
-    }
+    protected $casts = [
+        'meta' => 'array',
+        'paid_at' => 'datetime',
+    ];
 
     public function user()
     {
         return $this->belongsTo(User::class);
     }
 
-    public function memberPolicy()
+    public function plan()
     {
-        return $this->belongsTo(MemberPolicy::class);
+        return $this->belongsTo(InsurancePlan::class, 'plan_id');
     }
 
-    public function scopeCompleted($query)
+    public function policy()
     {
-        return $query->where('status', 'completed');
-    }
-
-    public function scopePending($query)
-    {
-        return $query->where('status', 'pending');
-    }
-
-    public static function generateTransactionId()
-    {
-        return 'TXN' . date('YmdHis') . mt_rand(1000, 9999);
+        return $this->belongsTo(MemberPolicy::class, 'policy_id');
     }
 }

@@ -98,13 +98,16 @@ export default function LoginPage() {
 	}, [formData, validateField, loginMode]);
 
 	// Enhanced input change handler with real-time validation
-	const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
 		const { name, value } = e.target;
 		
 		let processedValue = value;
-		if (name === 'agent_code_suffix') {
-			processedValue = value.replace(/[^0-9]/g, '').slice(0, 5);
-		}
+    if (name === 'agent_code_suffix') {
+      // Only restrict to digits in agent code mode. In email mode, allow full string input.
+      processedValue = loginMode === 'agent_code'
+        ? value.replace(/[^0-9]/g, '').slice(0, 5)
+        : value;
+    }
 		
 		setFormData(prev => ({ ...prev, [name]: processedValue }));
 		
@@ -456,8 +459,7 @@ export default function LoginPage() {
 																	onChange={handleInputChange} 
 																	placeholder="00001" 
 																	maxLength={5} 
-																	pattern="[0-9]*" 
-																	inputMode="numeric" 
+                                              inputMode="numeric" 
 																	className={`w-full h-10 sm:h-12 rounded-lg sm:rounded-xl border-2 px-3 sm:px-4 focus:outline-none focus:ring-2 focus:ring-[#264EE4]/20 transition-all duration-300 text-xs sm:text-sm font-medium shadow-sm hover:border-gray-300 tracking-widest ${
 																		getFieldError('agent_code_suffix') ? 'border-red-300 focus:border-red-400 focus:ring-red-400/20' : 'border-gray-200 focus:border-[#264EE4]'
 																	}`}

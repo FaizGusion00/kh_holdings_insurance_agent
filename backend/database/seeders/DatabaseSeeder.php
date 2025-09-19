@@ -13,12 +13,12 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // Seed insurance plans and commission rates
         $this->call([
             InsurancePlansSeeder::class,
             CommissionRatesSeeder::class,
+            HospitalsClinicsSeeder::class,
+            AdminSeeder::class,
+            UserSeeder::class,
         ]);
-
-        $this->command->info('Database seeding completed successfully!');
     }
 }

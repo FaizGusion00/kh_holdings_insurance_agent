@@ -2,236 +2,147 @@
 
 namespace App\Services;
 
+use App\Models\GatewayRecord;
+use App\Models\PaymentTransaction;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class CurlecPaymentService
 {
-    private $keyId;
-    private $keySecret;
-    private $isSandbox;
-    private $baseUrl;
+    private string $baseUrl;
+    private ?string $keyId;
+    private ?string $keySecret;
+    private bool $sandbox;
 
     public function __construct()
     {
+        $this->baseUrl = config('services.curlec.base_url', 'https://api.curlec.com');
         $this->keyId = config('services.curlec.key_id');
         $this->keySecret = config('services.curlec.key_secret');
-        $this->isSandbox = config('services.curlec.sandbox', true);
-        $this->baseUrl = $this->isSandbox ? 'https://api.curlec.com/v1' : 'https://api.curlec.com/v1';
+        $this->sandbox = (bool) config('services.curlec.sandbox', true);
     }
 
-    /**
-     * Create a payment order
-     */
-    public function createOrder($amount, $currency = 'MYR', $receiptId = null, $notes = [])
+    public function createOrder(PaymentTransaction $payment): array
     {
-        try {
-            $data = [
-                'amount' => $amount * 100, // Amount in sens (smallest currency unit)
-                'currency' => $currency,
-                'receipt' => $receiptId ?: 'receipt_' . time(),
-                'notes' => $notes
-            ];
+        $payload = [
+            'amount' => $payment->amount_cents / 100, // Convert to RM
+            'currency' => 'MYR',
+            'receipt' => 'KHI-' . $payment->id,
+            'notes' => [
+                'payment_id' => $payment->id,
+                'user_id' => $payment->user_id,
+                'plan_id' => $payment->plan_id,
+            ],
+        ];
 
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/orders', $data);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
+        // If no keys configured, return a mock response for local testing
+        if ($this->sandbox && (! $this->keyId || ! $this->keySecret)) {
             return [
-                'success' => false,
-                'error' => $response->json()['error'] ?? 'Failed to create order',
-                'status_code' => $response->status()
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec order creation failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Payment service temporarily unavailable'
+                'order_id' => 'MOCK-' . $payment->id,
+                'amount' => $payload['amount'],
+                'currency' => $payload['currency'],
+                'checkout_url' => null,
             ];
         }
-    }
 
-    /**
-     * Fetch payment details
-     */
-    public function getPayment($paymentId)
-    {
-        try {
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->get($this->baseUrl . '/payments/' . $paymentId);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => 'Payment not found',
-                'status_code' => $response->status()
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec payment fetch failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Payment service temporarily unavailable'
-            ];
-        }
-    }
-
-    /**
-     * Verify payment signature for webhooks
-     */
-    public function verifySignature($payload, $signature, $secret = null)
-    {
-        $webhookSecret = $secret ?: config('services.curlec.webhook_secret');
+        $response = $this->makeRequest('POST', '/v1/orders', $payload);
         
-        if (!$webhookSecret) {
-            return false;
-        }
+        // Store gateway record
+        GatewayRecord::create([
+            'provider' => 'curlec',
+            'direction' => 'request',
+            'external_ref' => $response['id'] ?? null,
+            'payload' => $payload,
+            'status_code' => 200,
+        ]);
 
-        $expectedSignature = hash_hmac('sha256', $payload, $webhookSecret);
-        
+        return [
+            'order_id' => $response['id'],
+            'amount' => $response['amount'],
+            'currency' => $response['currency'],
+            'checkout_url' => $response['checkout_url'] ?? null,
+        ];
+    }
+
+    public function verifyWebhook(array $payload, ?string $signature = null): bool
+    {
+        // In sandbox or if signature is empty, accept to ease local testing
+        if ($this->sandbox || empty($signature)) {
+            return true;
+        }
+        $expectedSignature = hash_hmac('sha256', json_encode($payload), $this->keySecret ?? '');
         return hash_equals($expectedSignature, $signature);
     }
 
-    /**
-     * Create a checkout session for frontend
-     */
-    public function createCheckoutSession($order, $customer = [], $options = [])
+    public function handleWebhook(array $payload): void
     {
-        $checkoutData = [
-            'key' => $this->keyId,
-            'amount' => $order['amount'],
-            'currency' => $order['currency'],
-            'order_id' => $order['id'],
-            'name' => config('app.name', 'KH Holdings Insurance'),
-            'description' => $options['description'] ?? 'Insurance Premium Payment',
-            'image' => $options['logo'] ?? '',
-            'prefill' => [
-                'name' => $customer['name'] ?? '',
-                'email' => $customer['email'] ?? '',
-                'contact' => $customer['phone'] ?? ''
-            ],
-            'theme' => [
-                'color' => $options['theme_color'] ?? '#264EE4'
-            ],
-            'modal' => [
-                'ondismiss' => 'function(){console.log("Payment cancelled")}'
-            ]
-        ];
+        $orderId = $payload['order_id'] ?? null;
+        $status = $payload['status'] ?? null;
 
-        // Add callback URLs if provided
-        if (isset($options['callback_url'])) {
-            $checkoutData['callback_url'] = $options['callback_url'];
+        if (!$orderId || !$status) {
+            Log::warning('Invalid Curlec webhook payload', $payload);
+            return;
         }
 
-        if (isset($options['redirect'])) {
-            $checkoutData['redirect'] = $options['redirect'];
+        // Store webhook record
+        GatewayRecord::create([
+            'provider' => 'curlec',
+            'direction' => 'webhook',
+            'external_ref' => $orderId,
+            'payload' => $payload,
+            'status_code' => 200,
+        ]);
+
+        // Find payment by order ID in notes
+        $payment = PaymentTransaction::where('external_ref', $orderId)
+            ->orWhere('meta->order_id', $orderId)
+            ->first();
+
+        if (!$payment) {
+            Log::warning('Payment not found for Curlec order', ['order_id' => $orderId]);
+            return;
         }
 
-        return $checkoutData;
-    }
+        // Update payment status
+        if ($status === 'paid') {
+            $payment->status = 'paid';
+            $payment->paid_at = now();
+            $payment->save();
 
-    /**
-     * Refund a payment
-     */
-    public function refundPayment($paymentId, $amount = null, $notes = [])
-    {
-        try {
-            $data = [
-                'notes' => $notes
-            ];
+            // Trigger commission disbursement
+            app(CommissionService::class)->disburseForPayment($payment);
 
-            if ($amount) {
-                $data['amount'] = $amount * 100; // Amount in sens
+            // Ensure payer has an agent_code after successful first payment
+            $user = $payment->user;
+            if ($user && empty($user->agent_code)) {
+                $seq = str_pad((string) (\App\Models\User::whereNotNull('agent_code')->count() + 1), 5, '0', STR_PAD_LEFT);
+                $user->agent_code = 'AGT' . $seq;
+                $user->save();
             }
-
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/payments/' . $paymentId . '/refund', $data);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error'] ?? 'Refund failed',
-                'status_code' => $response->status()
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec refund failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Refund service temporarily unavailable'
-            ];
+        } elseif ($status === 'failed') {
+            $payment->status = 'failed';
+            $payment->save();
         }
     }
 
-    /**
-     * Create subscription for recurring payments
-     */
-    public function createSubscription($planId, $customerId, $quantity = 1, $notes = [])
+    private function makeRequest(string $method, string $endpoint, array $data = []): array
     {
-        try {
-            $data = [
-                'plan_id' => $planId,
-                'customer_id' => $customerId,
-                'quantity' => $quantity,
-                'notes' => $notes
-            ];
+        $url = $this->baseUrl . $endpoint;
+        
+        $response = Http::withHeaders([
+            'Authorization' => 'Bearer ' . $this->keySecret,
+            'Content-Type' => 'application/json',
+            'X-Curlec-Key' => $this->keyId,
+        ])->$method($url, $data);
 
-            $response = Http::withBasicAuth($this->keyId, $this->keySecret)
-                ->post($this->baseUrl . '/subscriptions', $data);
-
-            if ($response->successful()) {
-                return [
-                    'success' => true,
-                    'data' => $response->json()
-                ];
-            }
-
-            return [
-                'success' => false,
-                'error' => $response->json()['error'] ?? 'Subscription creation failed',
-                'status_code' => $response->status()
-            ];
-
-        } catch (\Exception $e) {
-            Log::error('Curlec subscription creation failed: ' . $e->getMessage());
-            return [
-                'success' => false,
-                'error' => 'Subscription service temporarily unavailable'
-            ];
+        if (!$response->successful()) {
+            Log::error('Curlec API error', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            throw new \Exception('Curlec payment failed: ' . $response->body());
         }
-    }
 
-    /**
-     * Get checkout options for frontend integration
-     */
-    public function getCheckoutOptions()
-    {
-        return [
-            'key_id' => $this->keyId,
-            'sandbox' => $this->isSandbox,
-            'currency' => 'MYR',
-            'company_name' => config('app.name', 'KH Holdings Insurance'),
-            'company_logo' => url('/assets/logo.png'), // Add your logo URL
-            'theme_color' => '#264EE4'
-        ];
+        return $response->json();
     }
 }

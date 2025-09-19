@@ -354,7 +354,7 @@ class ApiServiceBridge {
       
       if (response.status === 'success' && response.data) {
         // Convert network members to Member format
-        const members: Member[] = (response.data.network_members?.data || []).map((member: any) => ({
+        const members: Member[] = (response.data.network_members || []).map((member: any) => ({
           id: member.id,
           name: member.name,
           email: member.email,
@@ -586,16 +586,19 @@ class ApiServiceBridge {
       const response = await laravelApi.getInsurancePlans();
       
       if (response.status === 'success' && response.data) {
-        // Transform to match expected format
+        // Transform to match expected format with correct pricing structure
         const plans = response.data.plans.map((plan: any) => ({
           id: plan.id,
           name: plan.plan_name,
+          plan_code: plan.plan_code,
           description: plan.description,
-          monthly_price: parseFloat(plan.monthly_price || '0'),
-          quarterly_price: plan.quarterly_price ? parseFloat(plan.quarterly_price) : null,
-          half_yearly_price: plan.semi_annually_price ? parseFloat(plan.semi_annually_price) : null,
-          yearly_price: parseFloat(plan.annually_price || '0'),
-          commitment_fee: parseFloat(plan.commitment_fee || '0'),
+          pricing: {
+            monthly: { base_price: plan.pricing?.monthly?.base_price || '0' },
+            quarterly: { base_price: plan.pricing?.quarterly?.base_price || '0' },
+            semi_annually: { base_price: plan.pricing?.semi_annually?.base_price || '0' },
+            annually: { base_price: plan.pricing?.annually?.base_price || '0' }
+          },
+          commitment_fee: plan.commitment_fee || '0',
           coverage_details: plan.benefits,
           terms_conditions: plan.terms_conditions,
           min_age: plan.min_age || 0,
@@ -628,21 +631,25 @@ class ApiServiceBridge {
       const response = await laravelApi.getHospitals(params);
       
       if (response.status === 'success' && response.data) {
-        // Transform hospitals to HealthcareFacility format
-        const hospitals: HealthcareFacility[] = (response.data.data || []).map((hospital: any) => ({
+        // API returns a paginator at data. Transform to flat list
+        const list = Array.isArray((response as any).data?.data)
+          ? (response as any).data.data
+          : (response as any).data;
+        const hospitals: HealthcareFacility[] = (list || []).map((hospital: any) => ({
           id: hospital.id,
           name: hospital.name,
           address: hospital.address,
           city: hospital.city,
           state: hospital.state,
-          phone: hospital.phone,
-          is_panel: hospital.is_panel || true,
-          is_active: hospital.is_active || true,
+          phone: hospital.phone_number || hospital.phone,
+          is_panel: hospital.is_panel ?? true,
+          is_active: hospital.is_active ?? true,
           type: 'hospital' as const
         }));
         
         return {
           status: 'success',
+          success: true,
           data: hospitals
         };
       }
@@ -661,21 +668,24 @@ class ApiServiceBridge {
       const response = await laravelApi.getClinics(params);
       
       if (response.status === 'success' && response.data) {
-        // Transform clinics to HealthcareFacility format
-        const clinics: HealthcareFacility[] = (response.data.data || []).map((clinic: any) => ({
+        const list = Array.isArray((response as any).data?.data)
+          ? (response as any).data.data
+          : (response as any).data;
+        const clinics: HealthcareFacility[] = (list || []).map((clinic: any) => ({
           id: clinic.id,
           name: clinic.name,
           address: clinic.address,
           city: clinic.city,
           state: clinic.state,
-          phone: clinic.phone,
-          is_panel: clinic.is_panel || true,
-          is_active: clinic.is_active || true,
+          phone: clinic.phone_number || clinic.phone,
+          is_panel: clinic.is_panel ?? true,
+          is_active: clinic.is_active ?? true,
           type: 'clinic' as const
         }));
         
         return {
           status: 'success',
+          success: true,
           data: clinics
         };
       }
@@ -764,91 +774,13 @@ class ApiServiceBridge {
   // Medical Insurance Registration methods
   async registerMedicalInsurance(registrationData: any): Promise<ApiResponse<any>> {
     try {
-      // Transform registration data to match Laravel API format
-      const clientData = {
-        name: registrationData.full_name,
-        email: registrationData.email,
-        phone_number: registrationData.phone_number,
-        nric: registrationData.nric,
-        race: registrationData.race,
-        date_of_birth: registrationData.date_of_birth, // use real DOB from form
-        gender: registrationData.gender, // use real gender from form
-        occupation: registrationData.occupation || 'Not specified',
-        height_cm: registrationData.height_cm,
-        weight_kg: registrationData.weight_kg,
-        emergency_contact_name: registrationData.emergency_contact_name,
-        emergency_contact_phone: registrationData.emergency_contact_phone,
-        emergency_contact_relationship: registrationData.emergency_contact_relationship,
-        medical_consultation_2_years: registrationData.medical_consultation_2_years,
-        serious_illness_history: registrationData.serious_illness_history || false,
-        insurance_rejection_history: registrationData.insurance_rejection_history,
-        serious_injury_history: registrationData.serious_injury_history || false,
-        address: registrationData.address || 'To be updated',
-        city: registrationData.city || 'Kuala Lumpur',
-        state: registrationData.state || 'Selangor',
-        postal_code: registrationData.postal_code || '50000',
-        plan_name: registrationData.plan_type,
-        payment_mode: registrationData.payment_mode,
-        medical_card_type: registrationData.medical_card_type,
-        password: registrationData.password,
-        password_confirmation: registrationData.password
-      };
-
-      // Convert single client to bulk registration format
-      const clients = [{
-        name: clientData.name,
-        email: clientData.email,
-        phone_number: clientData.phone_number,
-        nric: clientData.nric,
-        race: clientData.race,
-        date_of_birth: clientData.date_of_birth,
-        gender: clientData.gender,
-        occupation: clientData.occupation,
-        address: clientData.address,
-        city: clientData.city,
-        state: clientData.state,
-        postal_code: clientData.postal_code,
-        emergency_contact_name: clientData.emergency_contact_name,
-        emergency_contact_phone: clientData.emergency_contact_phone,
-        emergency_contact_relationship: clientData.emergency_contact_relationship,
-        medical_consultation_2_years: clientData.medical_consultation_2_years,
-        serious_illness_history: clientData.serious_illness_history,
-        insurance_rejection_history: clientData.insurance_rejection_history,
-        serious_injury_history: clientData.serious_injury_history,
-        insurance_plan_id: this.getInsurancePlanIdByName(registrationData.plan_type),
-        payment_mode: clientData.payment_mode,
-        medical_card_type: clientData.medical_card_type,
-        password: clientData.password
-      }];
-
-      // Use NEW bulk registration endpoint (creates pending registration, NOT users)
-      const response = await laravelApi.registerBulkClients({ clients });
-      
-      if (response.status === 'success' && response.data) {
-        return {
-          status: 'success',
-          success: true,
-          data: {
-            id: response.data.registration_id, // Map to expected format
-            registration_id: response.data.registration_id,
-            total_amount: response.data.total_amount,
-            client_count: clients.length
-          }
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Registration failed',
-        errors: response.errors
-      };
+      // The new form already sends the correct format with clients array
+      // Just pass it through to the backend
+      const response = await laravelApi.post('/medical-registration/register', registrationData);
+      return this.convertResponse(response);
     } catch (error) {
-      return {
-        status: 'error',
-        success: false,
-        message: error instanceof Error ? error.message : 'Registration failed'
-      };
+      console.error('Medical registration error:', error);
+      throw error;
     }
   }
 
@@ -865,42 +797,171 @@ class ApiServiceBridge {
   }
 
   async registerMedicalInsuranceExternal(registrationData: any): Promise<ApiResponse<any>> {
-    // For external mode, use the same method but with additional agent code context
-    return this.registerMedicalInsurance(registrationData);
+    try {
+      const response = await laravelApi.post('/medical-registration/external/register', registrationData);
+      return this.convertResponse(response);
+    } catch (error) {
+      console.error('External medical registration error:', error);
+      throw error;
+    }
+  }
+
+  async createMedicalInsurancePayment(paymentData: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/medical-registration/payment', paymentData);
+      
+      if (response.status === 'success' && response.data) {
+        // Define the expected response structure
+        const responseData = response.data as {
+          payment: any;
+          checkout_data: any;
+        };
+        
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            payment: responseData.payment,
+            checkout_data: responseData.checkout_data,
+          }
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: response.message || 'Payment creation failed'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Payment creation failed'
+      };
+    }
+  }
+
+  async verifyMedicalInsurancePayment(verificationData: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/medical-registration/verify', verificationData);
+      
+      if (response.status === 'success') {
+        return {
+          status: 'success',
+          success: true,
+          message: response.message || 'Payment verified successfully'
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: response.message || 'Payment verification failed'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Payment verification failed'
+      };
+    }
+  }
+
+  async createMedicalInsurancePaymentExternal(paymentData: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/medical-registration/external/payment', paymentData);
+      
+      if (response.status === 'success' && response.data) {
+        const responseData = response.data as {
+          payment: any;
+          checkout_data: any;
+        };
+        
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            payment: responseData.payment,
+            checkout_data: responseData.checkout_data,
+          }
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: response.message || 'Payment creation failed'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Payment creation failed'
+      };
+    }
+  }
+
+  async verifyMedicalInsurancePaymentExternal(verificationData: any): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/medical-registration/external/verify', verificationData);
+      
+      if (response.status === 'success') {
+        return {
+          status: 'success',
+          success: true,
+          message: response.message || 'Payment verified successfully'
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: response.message || 'Payment verification failed'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Payment verification failed'
+      };
+    }
+  }
+
+  async getMedicalInsuranceReceipt(paymentId: number): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.get(`/medical-registration/receipt/${paymentId}`);
+      
+      if (response.status === 'success' && response.data) {
+        return {
+          status: 'success',
+          success: true,
+          data: response.data
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: response.message || 'Receipt not found'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get receipt'
+      };
+    }
   }
 
   // Additional MLM methods for profile page
   async getReferrals(): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getNetwork();
-      
-      if (response.status === 'success' && response.data) {
-        // Transform network data to referrals format
-        const networkMembers = response.data.network_members?.data || [];
-        // Get current user info from separate API call if needed
-        const userResponse = await laravelApi.getMe();
-        const currentUser = userResponse.data?.user;
-        const userAgentCode = currentUser?.agent_code || '';
-        const directReferrals = networkMembers.filter((member: any) => member.referrer_code === userAgentCode);
-        
-        return {
-          status: 'success',
-          data: {
-            direct_referrals: directReferrals,
-            direct_referrals_count: directReferrals.length,
-            total_downlines_count: networkMembers.length,
-            downline_stats: {
-              direct_referrals_count: directReferrals.length,
-              total_downlines_count: networkMembers.length
-            }
-          }
-        };
-      }
-      
-      return response;
+      const response = await laravelApi.getReferrals();
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'Failed to get referrals'
       };
     }
@@ -908,25 +969,12 @@ class ApiServiceBridge {
 
   async getDownlines(level?: number): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getNetwork();
-      
-      if (response.status === 'success' && response.data) {
-        // Filter by level if specified
-        let downlines = response.data.network_members?.data || [];
-        if (level) {
-          downlines = downlines.filter((member: any) => member.mlm_level === level);
-        }
-        
-        return {
-          status: 'success',
-          data: { data: downlines }
-        };
-      }
-      
-      return response;
+      const response = await laravelApi.getDownlines(level);
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'Failed to get downlines'
       };
     }
@@ -934,19 +982,12 @@ class ApiServiceBridge {
 
   async getCommissionSummary(): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getLevelSummary();
-      
-      if (response.status === 'success' && response.data) {
-        return {
-          status: 'success',
-          data: response.data.level_summary
-        };
-      }
-      
-      return response;
+      const response = await laravelApi.getCommissionSummary();
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'Failed to get commission summary'
       };
     }
@@ -1029,6 +1070,32 @@ class ApiServiceBridge {
         status: 'error',
         success: false,
         message: error instanceof Error ? error.message : 'Failed to change password'
+      };
+    }
+  }
+
+  async sendPhoneVerification(phoneData: { phone_number: string }): Promise<ApiResponse<{ verification_code: string }>> {
+    try {
+      const response = await laravelApi.sendPhoneVerification(phoneData);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to send verification code'
+      };
+    }
+  }
+
+  async verifyPhoneChange(verificationData: { phone_number: string; verification_code: string }): Promise<ApiResponse<{ user: User }>> {
+    try {
+      const response = await laravelApi.verifyPhoneChange(verificationData);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to verify phone change'
       };
     }
   }
@@ -1137,13 +1204,7 @@ class ApiServiceBridge {
     return this.getUnreadNotificationsCount();
   }
 
-  async verifyMedicalInsurancePayment(data: any): Promise<ApiResponse<any>> {
-    return {
-      status: 'success',
-      success: true,
-      data: { verified: true }
-    };
-  }
+  // This is a duplicate function, removing it
 
   // =====================
   // HELPER METHODS

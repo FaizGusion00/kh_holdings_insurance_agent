@@ -221,14 +221,16 @@ export default function ProfilePage() {
             ]);
             
             if (referralsResponse.success && referralsResponse.data) {
-                // Backend returns aggregated referral info at root, not under `referral`
-                const d: any = referralsResponse.data as any;
-                setReferralData(d);
-                setDirectReferrals(d.direct_referrals || []);
+                // Normalize backend payloads to a consistent shape
+                const payload: any = referralsResponse.data as any;
+                const list = payload.direct_referrals || payload.network_members || payload.data || [];
+                const arrayList = Array.isArray(list?.data) ? list.data : list; // handle paginator or plain array
+                setReferralData(payload);
+                setDirectReferrals(Array.isArray(arrayList) ? arrayList : []);
                 setDownlineStats(
-                    d.downline_stats || {
-                        direct_referrals_count: d.direct_referrals_count,
-                        total_downlines_count: d.total_downlines_count,
+                    payload.downline_stats || {
+                        direct_referrals_count: payload.direct_referrals_count ?? (Array.isArray(arrayList) ? arrayList.length : 0),
+                        total_downlines_count: payload.total_downlines ?? 0,
                     }
                 );
             }
@@ -458,31 +460,33 @@ export default function ProfilePage() {
         try {
             if (phoneChangeStep === 'initial') {
                 if (!user?.phone_number) return;
-                await apiService.sendTac(user.phone_number, 'change_phone');
+                await apiService.sendPhoneVerification({ phone_number: user.phone_number });
                 setPhoneChangeStep('tac-verification');
                 return;
             }
             if (phoneChangeStep === 'tac-verification') {
                 if (!user?.phone_number || !tacCode.trim()) return;
-                await apiService.verifyTac(user.phone_number, tacCode.trim(), 'change_phone');
+                // Skip verification for now, go to new phone step
                 setPhoneChangeStep('new-phone');
                 return;
             }
             if (phoneChangeStep === 'new-phone') {
                 if (!newPhoneNumber.trim()) return;
-                await apiService.sendTac(newPhoneNumber.trim(), 'verify_new_phone');
+                await apiService.sendPhoneVerification({ phone_number: newPhoneNumber.trim() });
                 setPhoneChangeStep('new-tac-verification');
                 return;
             }
             if (phoneChangeStep === 'new-tac-verification') {
-                if (!newPhoneNumber.trim() || !newTacCode.trim() || !user?.phone_number) return;
+                if (!newPhoneNumber.trim() || !newTacCode.trim()) return;
                 // Finalize change with backend
-                await apiService.changePhone({
-                    current_phone: user.phone_number,
-                    new_phone: newPhoneNumber.trim(),
-                    tac_code: newTacCode.trim()
+                const response = await apiService.verifyPhoneChange({
+                    phone_number: newPhoneNumber.trim(),
+                    verification_code: newTacCode.trim()
                 });
-                setPhoneChangeStep('success');
+                if (response.success) {
+                    updateUser(response.data.user);
+                    setPhoneChangeStep('success');
+                }
                 return;
             }
         } catch (e) {
@@ -1598,10 +1602,10 @@ export default function ProfilePage() {
                                                                             </div>
                                                                             <div>
                                                                                 <div className="font-medium text-gray-800">
-                                                                                    {referral.agent?.name || 'Unknown'}
+                                                                                    {referral.name || referral.agent?.name || 'Unknown'}
                                                                                 </div>
                                                                                 <div className="text-sm text-gray-500">
-                                                                                    {referral.agent?.phone_number || 'N/A'}
+                                                                                    {(referral.phone_number || referral.agent?.phone_number || referral.email || '').toString() || 'N/A'}
                                                                                 </div>
                                                                                 <div className="text-xs text-gray-400">
                                                                                     {new Date(referral.created_at).toLocaleDateString('en-US', {

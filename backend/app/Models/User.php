@@ -2,28 +2,23 @@
 
 namespace App\Models;
 
+// use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
-use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Tymon\JWTAuth\Contracts\JWTSubject;
 
-/**
- * User Model for Insurance MLM System
- * 
- * This model handles both regular clients and agents in the MLM system.
- * Agents have agent_codes and can refer new users to earn commissions.
- */
 class User extends Authenticatable implements JWTSubject
 {
-    use HasFactory, Notifiable, SoftDeletes;
+    /** @use HasFactory<\Database\Factories\UserFactory> */
+    use HasFactory, Notifiable;
 
     /**
      * The attributes that are mass assignable.
+     *
+     * @var list<string>
      */
     protected $fillable = [
-        'agent_code',
-        'referrer_code',
         'name',
         'email',
         'phone_number',
@@ -42,6 +37,8 @@ class User extends Authenticatable implements JWTSubject
         'insurance_rejection_history',
         'serious_injury_history',
         'relationship_with_agent',
+        'balance',
+        'wallet_balance',
         'address',
         'city',
         'state',
@@ -50,8 +47,12 @@ class User extends Authenticatable implements JWTSubject
         'bank_account_number',
         'bank_account_owner',
         'mlm_level',
+        'total_commission_earned',
         'monthly_commission_target',
         'status',
+        'email_verified_at',
+        'phone_verified_at',
+        'mlm_activation_date',
         'plan_name',
         'payment_mode',
         'medical_card_type',
@@ -64,10 +65,14 @@ class User extends Authenticatable implements JWTSubject
         'premium_amount',
         'current_payment_mode',
         'password',
+        'agent_code',
+        'referrer_code',
     ];
 
     /**
      * The attributes that should be hidden for serialization.
+     *
+     * @var list<string>
      */
     protected $hidden = [
         'password',
@@ -76,207 +81,77 @@ class User extends Authenticatable implements JWTSubject
 
     /**
      * Get the attributes that should be cast.
+     *
+     * @return array<string, string>
      */
     protected function casts(): array
     {
         return [
-            'date_of_birth' => 'date',
             'email_verified_at' => 'datetime',
-            'phone_verified_at' => 'datetime',
-            'registration_date' => 'datetime',
-            'mlm_activation_date' => 'datetime',
             'password' => 'hashed',
-            'medical_consultation_2_years' => 'boolean',
-            'insurance_rejection_history' => 'boolean',
-            'balance' => 'decimal:2',
-            'wallet_balance' => 'decimal:2',
-            'total_commission_earned' => 'decimal:2',
-            'monthly_commission_target' => 'decimal:2',
-            'height_cm' => 'integer',
-            'weight_kg' => 'decimal:2',
-            'mlm_level' => 'integer',
-        ];
-    }
-
-    // JWT Auth Methods
-    public function getJWTIdentifier()
-    {
-        return $this->getKey();
-    }
-
-    public function getJWTCustomClaims()
-    {
-        return [
-            'customer_type' => $this->customer_type,
-            'agent_code' => $this->agent_code,
-            'mlm_level' => $this->mlm_level,
+            'last_login_at' => 'datetime',
         ];
     }
 
     // Relationships
-    
-    /**
-     * Get the user's insurance policies
-     */
     public function memberPolicies()
     {
         return $this->hasMany(MemberPolicy::class);
     }
 
-    /**
-     * Get the user's payment transactions
-     */
-    public function paymentTransactions()
+    public function policies()
     {
-        return $this->hasMany(PaymentTransaction::class);
+        return $this->hasMany(MemberPolicy::class);
     }
 
-    /**
-     * Get the user's wallet transactions
-     */
-    public function walletTransactions()
+    public function agentWallet()
     {
-        return $this->hasMany(WalletTransaction::class);
+        return $this->hasOne(AgentWallet::class);
     }
 
-    /**
-     * Get the user's withdrawal requests
-     */
-    public function withdrawalRequests()
+    public function wallet()
     {
-        return $this->hasMany(WithdrawalRequest::class);
+        return $this->hasOne(AgentWallet::class);
     }
 
-    /**
-     * Get the user's notifications
-     */
-    public function notifications()
+    public function referredUsers()
     {
-        return $this->hasMany(Notification::class);
+        return $this->hasMany(User::class, 'referrer_code', 'agent_code');
     }
 
-    /**
-     * Get the agent who referred this user
-     */
-    public function referrer()
-    {
-        return $this->belongsTo(User::class, 'referrer_code', 'agent_code');
-    }
-
-    /**
-     * Get users referred by this user (downline)
-     */
     public function referrals()
     {
         return $this->hasMany(User::class, 'referrer_code', 'agent_code');
     }
 
-    // Scopes
-
-    /**
-     * Scope for active users only
-     */
-    public function scopeActive($query)
+    public function referrer()
     {
-        return $query->where('status', 'active');
+        return $this->belongsTo(User::class, 'referrer_code', 'agent_code');
     }
 
-    /**
-     * Scope for agents only
-     */
-    public function scopeAgents($query)
+    public function commissionTransactions()
     {
-        return $query->where('customer_type', 'agent');
+        return $this->hasMany(CommissionTransaction::class, 'earner_user_id');
     }
 
-    /**
-     * Scope for clients only
-     */
-    public function scopeClients($query)
+    public function paymentTransactions()
     {
-        return $query->where('customer_type', 'client');
+        return $this->hasMany(PaymentTransaction::class);
     }
 
-    /**
-     * Scope for users by MLM level
-     */
-    public function scopeByMlmLevel($query, $level)
+    public function withdrawalRequests()
     {
-        return $query->where('mlm_level', $level);
+        return $this->hasMany(WithdrawalRequest::class);
     }
 
-    // Helper Methods
-
-    /**
-     * Generate a unique agent code in format AGT + 5 digits
-     */
-    public static function generateAgentCode()
+    // JWT implementation
+    public function getJWTIdentifier()
     {
-        do {
-            // Generate random 5 digits
-            $digits = str_pad(mt_rand(10000, 99999), 5, '0', STR_PAD_LEFT);
-            $agentCode = 'AGT' . $digits;
-            
-            // Check if this agent code already exists
-            $exists = self::where('agent_code', $agentCode)->exists();
-        } while ($exists);
-        
-        return $agentCode;
+        return $this->getKey();
     }
 
-    /**
-     * Auto-assign agent code when creating new agents
-     */
-    public static function boot()
+    public function getJWTCustomClaims(): array
     {
-        parent::boot();
-        
-        static::creating(function ($user) {
-            // Auto-generate agent code for new agents
-            if ($user->customer_type === 'agent' && empty($user->agent_code)) {
-                $user->agent_code = self::generateAgentCode();
-            }
-        });
-    }
-
-    /**
-     * Check if user is an agent
-     */
-    public function isAgent()
-    {
-        return $this->customer_type === 'agent';
-    }
-
-    /**
-     * Check if user is a client
-     */
-    public function isClient()
-    {
-        return $this->customer_type === 'client';
-    }
-
-    /**
-     * Check if user is active
-     */
-    public function isActive()
-    {
-        return $this->status === 'active';
-    }
-
-
-    /**
-     * Get user's total downline count
-     */
-    public function getDownlineCount()
-    {
-        return $this->referrals()->count();
-    }
-
-    /**
-     * Get user's active policies count
-     */
-    public function getActivePoliciesCount()
-    {
-        return $this->memberPolicies()->where('status', 'active')->count();
+        return [];
     }
 }

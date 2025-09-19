@@ -1,0 +1,65 @@
+# Production Dockerfile for KH Holdings Insurance Agent
+FROM php:8.2-fpm
+
+# Set working directory
+WORKDIR /var/www/html
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    libpng-dev \
+    libonig-dev \
+    libxml2-dev \
+    libzip-dev \
+    zip \
+    unzip \
+    nginx \
+    supervisor \
+    cron \
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
+
+# Install Composer
+COPY --from=composer:latest /usr/bin/composer /usr/bin/composer
+
+# Install Node.js
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
+
+# Copy application files
+COPY backend/ /var/www/html/backend/
+COPY app/ /var/www/html/app/
+COPY public/ /var/www/html/public/
+COPY package.json package-lock.json /var/www/html/
+COPY next.config.ts tsconfig.json postcss.config.mjs tailwind.config.ts /var/www/html/
+
+# Install PHP dependencies
+WORKDIR /var/www/html/backend
+RUN composer install --no-dev --optimize-autoloader --no-interaction
+
+# Install Node.js dependencies and build
+WORKDIR /var/www/html
+RUN npm ci --production=false && npm run build
+
+# Set permissions
+RUN chown -R www-data:www-data /var/www/html \
+    && chmod -R 755 /var/www/html/storage \
+    && chmod -R 755 /var/www/html/bootstrap/cache
+
+# Copy configuration files
+COPY docker/php/local.ini /usr/local/etc/php/conf.d/local.ini
+COPY docker/nginx/conf.d/default.conf /etc/nginx/sites-available/default
+COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+# Create necessary directories
+RUN mkdir -p /var/www/html/backend/storage/logs \
+    && mkdir -p /var/www/html/backend/storage/framework/cache \
+    && mkdir -p /var/www/html/backend/storage/framework/sessions \
+    && mkdir -p /var/www/html/backend/storage/framework/views \
+    && mkdir -p /var/www/html/backend/bootstrap/cache
+
+# Expose port
+EXPOSE 80
+
+# Start supervisor
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]

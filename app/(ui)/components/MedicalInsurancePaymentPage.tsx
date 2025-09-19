@@ -8,12 +8,15 @@ import { apiService } from "@/app/services/api";
 interface MedicalInsurancePlan {
   id: number;
   name: string;
+  plan_code: string;
   description: string;
-  monthly_price: number;
-  quarterly_price: number | null;
-  half_yearly_price: number | null;
-  yearly_price: number;
-  commitment_fee: number;
+  pricing: {
+    monthly: { base_price: string };
+    quarterly: { base_price: string };
+    semi_annually: { base_price: string };
+    annually: { base_price: string };
+  };
+  commitment_fee: string;
   coverage_details: any;
   max_age: number | null;
   min_age: number;
@@ -26,19 +29,19 @@ interface PaymentPageProps {
   onSuccess: (payment: any) => void;
   initialTotalAmount?: number | null;
   initialBreakdown?: Array<{ customer_type?: string; plan_type?: string; payment_mode?: string; line_total?: number }>;
+  externalMode?: boolean;
 }
 
 export default function MedicalInsurancePaymentPage({ 
-  registrationId, 
-  isOpen, 
-  onClose, 
+  registrationId,
+  isOpen,
+  onClose,
   onSuccess,
   initialTotalAmount = null,
-  initialBreakdown = []
+  initialBreakdown = [],
+  externalMode = false
 }: PaymentPageProps) {
   const [plans, setPlans] = useState<MedicalInsurancePlan[]>([]);
-  const [selectedPlan, setSelectedPlan] = useState<MedicalInsurancePlan | null>(null);
-  const [paymentFrequency, setPaymentFrequency] = useState<'monthly' | 'quarterly' | 'half_yearly' | 'yearly'>('monthly');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [paymentConfig, setPaymentConfig] = useState<any>(null);
@@ -51,7 +54,6 @@ export default function MedicalInsurancePaymentPage({
     if (isOpen) {
       loadPlans();
       loadPaymentConfig();
-      // Seed UI with initial totals if provided, then try to sync from backend
       if (initialTotalAmount !== null) setTotalAmount(initialTotalAmount);
       if (initialBreakdown && initialBreakdown.length > 0) setAmountBreakdown(initialBreakdown);
       loadRegistrationDetails();
@@ -63,9 +65,6 @@ export default function MedicalInsurancePaymentPage({
       const response = await apiService.getMedicalInsurancePlans();
       if (response.success && response.data) {
         setPlans(response.data);
-        if (response.data.length > 0) {
-          setSelectedPlan(response.data[0]);
-        }
       }
     } catch (err) {
       setError("Failed to load medical insurance plans");
@@ -83,48 +82,24 @@ export default function MedicalInsurancePaymentPage({
     }
   };
 
-  const handlePlanSelect = (plan: MedicalInsurancePlan) => {
-    setSelectedPlan(plan);
-  };
-
-  const handlePaymentFrequencyChange = (frequency: 'monthly' | 'quarterly' | 'half_yearly' | 'yearly') => {
-    setPaymentFrequency(frequency);
-  };
-
-  const getPlanPrice = (plan: MedicalInsurancePlan, frequency: string) => {
-    switch (frequency) {
-      case 'monthly':
-        return plan.monthly_price;
-      case 'quarterly':
-        return plan.quarterly_price || 0;
-      case 'half_yearly':
-        return plan.half_yearly_price || 0;
-      case 'yearly':
-        return plan.yearly_price;
-      default:
-        return plan.monthly_price;
-    }
-  };
-
-  const getTotalPrice = (plan: MedicalInsurancePlan, frequency: string) => {
-    const basePrice = getPlanPrice(plan, frequency);
-    return basePrice + plan.commitment_fee;
-  };
-
   const loadRegistrationDetails = async () => {
     if (!registrationId) return;
     
     try {
-      // Get registration details
       const response = await apiService.getMedicalInsuranceRegistrationStatus(registrationId);
       if (response.success && response.data) {
         setRegistrationDetails(response.data);
         
         // Pre-calculate total amount
-        const preCalcResponse = await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
-          registration_id: registrationId,
-          calculate_only: true
-        });
+        const preCalcResponse = externalMode 
+          ? await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
+              registration_id: registrationId,
+              calculate_only: true
+            })
+          : await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
+              registration_id: registrationId,
+              calculate_only: true
+            });
         
         if (preCalcResponse.success && preCalcResponse.data?.total_amount !== undefined) {
           setTotalAmount(preCalcResponse.data.total_amount);
@@ -141,34 +116,54 @@ export default function MedicalInsurancePaymentPage({
     setError("");
 
     try {
-      const response = await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
-        registration_id: registrationId
-      });
+      const response = externalMode 
+        ? await apiService.createMedicalInsurancePaymentExternal({
+            registration_id: registrationId,
+            policy_ids: registrationDetails?.policies?.map((p: any) => p.id) || [],
+            payment_method: 'curlec',
+            return_url: window.location.origin + '/payment/success',
+            cancel_url: window.location.origin + '/payment/cancel'
+          })
+        : await apiService.createMedicalInsurancePayment({
+            registration_id: registrationId,
+            policy_ids: registrationDetails?.policies?.map((p: any) => p.id) || [],
+            payment_method: 'curlec',
+            return_url: window.location.origin + '/payment/success',
+            cancel_url: window.location.origin + '/payment/cancel'
+          });
 
       if (response.success && response.data) {
-        // Initialize Razorpay checkout (only if checkout_config exists)
+        const paymentData = response.data;
+        
+        // Initialize Curlec/Payment checkout
         const options = {
           key: paymentConfig?.key_id,
-          amount: response.data.checkout_config?.amount ?? (totalAmount ? Math.round(totalAmount * 100) : undefined),
-          currency: response.data.checkout_config?.currency ?? 'MYR',
-          name: response.data.checkout_config?.name ?? 'KH Holdings Insurance',
-          description: response.data.checkout_config?.description ?? 'Medical Insurance Payment',
-          order_id: response.data.checkout_config?.order_id,
-          prefill: response.data.checkout_config?.prefill,
-          theme: response.data.checkout_config?.theme ?? { color: '#10b981' },
-          handler: async function (response: any) {
-            // Verify payment
+          amount: paymentData.checkout_data?.amount ? Math.round(paymentData.checkout_data.amount * 100) : (totalAmount ? Math.round(totalAmount * 100) : undefined),
+          currency: paymentData.checkout_data?.currency ?? 'MYR',
+          name: 'KH Holdings Insurance',
+          description: 'Medical Insurance Payment',
+          order_id: paymentData.checkout_data?.order_id,
+          prefill: {
+            name: registrationDetails?.clients?.[0]?.name || '',
+            email: registrationDetails?.clients?.[0]?.email || ''
+          },
+          theme: { color: '#10b981' },
+          handler: async function (razorpayResponse: any) {
             try {
-              const verifyResponse = await apiService.verifyMedicalInsurancePayment({
-                razorpay_order_id: response.razorpay_order_id,
-                razorpay_payment_id: response.razorpay_payment_id,
-                razorpay_signature: response.razorpay_signature,
-                registration_id: registrationId
-              });
+              const verifyResponse = externalMode
+                ? await apiService.verifyMedicalInsurancePaymentExternal({
+                    payment_id: paymentData.payment.id,
+                    status: 'success',
+                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_order_id
+                  })
+                : await apiService.verifyMedicalInsurancePayment({
+                    payment_id: paymentData.payment.id,
+                    status: 'success',
+                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_order_id
+                  });
 
               if (verifyResponse.success) {
                 onSuccess(verifyResponse.data);
-                // Show a lightweight confirmation before closing
                 alert('Payment successful and verified. Thank you!');
                 onClose();
               } else {
@@ -194,7 +189,7 @@ export default function MedicalInsurancePaymentPage({
           alert('Payment simulated successfully (dev mode).');
           onClose();
         }
-        // Sync UI with authoritative backend total and breakdown
+        
         if (response.data.amount !== undefined) setTotalAmount(response.data.amount);
         if (response.data.breakdown) setAmountBreakdown(response.data.breakdown);
       } else {
@@ -207,148 +202,92 @@ export default function MedicalInsurancePaymentPage({
     }
   };
 
-  const renderPlanCard = (plan: MedicalInsurancePlan) => (
-    <motion.div
-      key={plan.id}
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
-      className={`cursor-pointer rounded-xl border-2 p-6 transition-all duration-200 ${
-        selectedPlan?.id === plan.id
-          ? 'border-emerald-500 bg-emerald-50'
-          : 'border-gray-200 bg-white hover:border-gray-300'
-      }`}
-      onClick={() => handlePlanSelect(plan)}
-    >
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-800">{plan.name}</h3>
-        {selectedPlan?.id === plan.id && (
-          <CheckCircle className="w-6 h-6 text-emerald-600" />
-        )}
-      </div>
-      
-      <p className="text-sm text-gray-600 mb-4">{plan.description}</p>
-      
-      <div className="space-y-2">
-        <div className="flex justify-between">
-          <span className="text-sm text-gray-600">Monthly:</span>
-          <span className="font-semibold">RM {plan.monthly_price}</span>
-        </div>
-        {plan.quarterly_price && (
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Quarterly:</span>
-            <span className="font-semibold">RM {plan.quarterly_price}</span>
-          </div>
-        )}
-        {plan.half_yearly_price && (
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Half Yearly:</span>
-            <span className="font-semibold">RM {plan.half_yearly_price}</span>
-          </div>
-        )}
-        <div className="flex justify-between">
-          <span className="text-sm text-gray-600">Yearly:</span>
-          <span className="font-semibold">RM {plan.yearly_price}</span>
-        </div>
-        {plan.commitment_fee > 0 && (
-          <div className="flex justify-between">
-            <span className="text-sm text-gray-600">Commitment Fee:</span>
-            <span className="font-semibold">RM {plan.commitment_fee}</span>
-          </div>
-        )}
-      </div>
-
-      {plan.coverage_details && (
-        <div className="mt-4 pt-4 border-t border-gray-200">
-          <h4 className="text-sm font-medium text-gray-800 mb-2">Coverage Details:</h4>
-          <ul className="text-xs text-gray-600 space-y-1">
-            {Object.entries(plan.coverage_details).map(([key, value]) => (
-              <li key={key} className="flex justify-between">
-                <span className="capitalize">{key.replace(/_/g, ' ')}:</span>
-                <span>{value as string}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </motion.div>
-  );
-
-  const renderPaymentFrequency = () => (
-    <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-gray-800">Select Payment Frequency</h3>
-      <div className="grid grid-cols-2 gap-4">
-        {['monthly', 'quarterly', 'half_yearly', 'yearly'].map((frequency) => {
-          const freq = frequency as 'monthly' | 'quarterly' | 'half_yearly' | 'yearly';
-          const isAvailable = selectedPlan && getPlanPrice(selectedPlan, frequency) > 0;
-          
-          return (
-            <button
-              key={frequency}
-              disabled={!isAvailable}
-              onClick={() => handlePaymentFrequencyChange(freq)}
-              className={`p-4 rounded-lg border-2 transition-all duration-200 ${
-                paymentFrequency === frequency
-                  ? 'border-emerald-500 bg-emerald-50'
-                  : isAvailable
-                  ? 'border-gray-200 bg-white hover:border-gray-300'
-                  : 'border-gray-100 bg-gray-50 cursor-not-allowed opacity-50'
-              }`}
-            >
-              <div className="text-center">
-                <div className="font-semibold text-gray-800 capitalize">{frequency.replace('_', ' ')}</div>
-                {selectedPlan && isAvailable && (
-                  <div className="text-sm text-gray-600">
-                    RM {getPlanPrice(selectedPlan, frequency)}
-                  </div>
-                )}
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-
   const renderPaymentSummary = () => {
-    if (!selectedPlan) return null;
-
-    const totalPrice = getTotalPrice(selectedPlan, paymentFrequency);
-    const basePrice = getPlanPrice(selectedPlan, paymentFrequency);
+    if (!registrationDetails) return null;
 
     return (
-      <div className="bg-gray-50 rounded-xl p-6">
+      <div className="space-y-4">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Payment Summary</h3>
         
-        <div className="space-y-3">
-          <div className="flex justify-between">
-            <span className="text-gray-600">Plan:</span>
-            <span className="font-medium">{selectedPlan.name}</span>
-          </div>
-          
-          <div className="flex justify-between">
-            <span className="text-gray-600">Frequency:</span>
-            <span className="font-medium capitalize">{paymentFrequency.replace('_', ' ')}</span>
-          </div>
-          
-          <div className="flex justify-between">
-            <span className="text-gray-600">Base Price:</span>
-            <span className="font-medium">RM {basePrice}</span>
-          </div>
-          
-          {selectedPlan.commitment_fee > 0 && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Commitment Fee:</span>
-              <span className="font-medium">RM {selectedPlan.commitment_fee}</span>
+        {registrationDetails.clients?.map((client: any, index: number) => {
+          const plan = plans.find(p => p.name === client.plan_type);
+          if (!plan) return null;
+
+          const getPlanPrice = (frequency: string) => {
+            switch (frequency) {
+              case 'monthly':
+                return parseFloat(plan.pricing.monthly.base_price) || 0;
+              case 'quarterly':
+                return parseFloat(plan.pricing.quarterly.base_price) || 0;
+              case 'semi_annually':
+                return parseFloat(plan.pricing.semi_annually.base_price) || 0;
+              case 'annually':
+                return parseFloat(plan.pricing.annually.base_price) || 0;
+              default:
+                return parseFloat(plan.pricing.monthly.base_price) || 0;
+            }
+          };
+
+          const getCommitmentFee = (frequency: string) => {
+            if (frequency !== 'monthly') return 0;
+            return parseFloat(plan.commitment_fee) || 0;
+          };
+
+          const getNfcCardPrice = (cardType: string) => {
+            if (cardType === 'e-Medical Card & Fizikal Medical Card dengan fungsi NFC Touch n Go (RRP RM34.90)') {
+              return 34.90;
+            }
+            return 0;
+          };
+
+          const basePrice = getPlanPrice(client.payment_mode);
+          const commitmentFee = getCommitmentFee(client.payment_mode);
+          const nfcPrice = getNfcCardPrice(client.medical_card_type);
+          const total = basePrice + commitmentFee + nfcPrice;
+
+          return (
+            <div key={index} className="bg-gray-50 rounded-lg p-4">
+              <div className="flex justify-between items-start mb-2">
+                <h4 className="font-medium text-gray-800">
+                  {index === 0 ? 'Primary Customer' : `Customer ${index + 1}`}
+                </h4>
+                <span className="text-sm text-gray-600">{client.plan_type}</span>
+              </div>
+              
+              <div className="space-y-1 text-sm text-gray-600">
+                <div className="flex justify-between">
+                  <span>Base Price ({client.payment_mode}):</span>
+                  <span>RM {basePrice.toFixed(2)}</span>
+                </div>
+                {commitmentFee > 0 && (
+                  <div className="flex justify-between">
+                    <span>Commitment Fee:</span>
+                    <span>RM {commitmentFee.toFixed(2)}</span>
+                  </div>
+                )}
+                {nfcPrice > 0 && (
+                  <div className="flex justify-between">
+                    <span>NFC Card:</span>
+                    <span>RM {nfcPrice.toFixed(2)}</span>
+                  </div>
+                )}
+                <div className="flex justify-between font-medium text-gray-800 border-t pt-1">
+                  <span>Subtotal:</span>
+                  <span>RM {total.toFixed(2)}</span>
+                </div>
+              </div>
             </div>
-          )}
-          
-          <div className="border-t border-gray-200 pt-3">
-            <div className="flex justify-between text-lg font-bold">
-              <span>Total Amount:</span>
-              <span className="text-emerald-600">RM {totalPrice}</span>
+          );
+        })}
+
+        {totalAmount && (
+          <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+            <div className="flex justify-between items-center">
+              <span className="text-lg font-bold text-emerald-800">Grand Total:</span>
+              <span className="text-2xl font-bold text-emerald-800">RM {totalAmount.toFixed(2)}</span>
             </div>
           </div>
-        </div>
+        )}
       </div>
     );
   };
@@ -367,10 +306,10 @@ export default function MedicalInsurancePaymentPage({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.9, opacity: 0, y: 20 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="bg-white rounded-2xl shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-y-auto relative z-[10000]"
+            className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto relative z-[10000]"
           >
             <div className="flex items-center justify-between p-6 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-800">Medical Insurance Payment</h2>
+              <h2 className="text-xl font-bold text-gray-800">Payment Confirmation</h2>
               <button
                 onClick={onClose}
                 className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -387,61 +326,43 @@ export default function MedicalInsurancePaymentPage({
               )}
 
               <div className="text-center">
-                <h3 className="text-lg font-semibold text-gray-800 mb-2">Payment Summary</h3>
-                <p className="text-sm text-gray-600">Review your medical insurance registration details before proceeding to payment:</p>
+                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <CreditCard className="w-8 h-8 text-emerald-600" />
+                </div>
+                <h3 className="text-lg font-semibold text-gray-800 mb-2">Complete Your Payment</h3>
+                <p className="text-sm text-gray-600">Review your order details and proceed to payment</p>
               </div>
 
-              <div className="bg-white border border-gray-200 rounded-lg p-6">
-                <h4 className="font-semibold text-gray-800 mb-4">Registration Details</h4>
-                <div className="space-y-3">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Registration ID:</span>
-                    <span className="font-medium">#{registrationId}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Total Customers:</span>
-                    <span className="font-medium">Multiple customers registered</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Payment Method:</span>
-                    <span className="font-medium">Curlec (Razorpay)</span>
+              {renderPaymentSummary()}
+
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <Shield className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-blue-800">Secure Payment</h4>
+                    <p className="text-sm text-blue-700 mt-1">
+                      Your payment is processed securely through our payment gateway. 
+                      All transactions are encrypted and protected.
+                    </p>
                   </div>
                 </div>
               </div>
 
-              <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-6">
-                <h4 className="font-semibold text-emerald-800 mb-4">Payment Information</h4>
-                <div className="space-y-2">
-                  <div className="flex justify-between">
-                    <span className="text-emerald-700">Total Amount:</span>
-                    <span className="font-bold text-emerald-800">
-                      {totalAmount !== null ? `RM ${totalAmount.toFixed(2)}` : 'Calculating...'}
-                    </span>
-                  </div>
-                  {amountBreakdown.length > 0 && (
-                    <div className="mt-2">
-                      <div className="text-sm font-semibold text-emerald-900 mb-1">Amount Breakdown</div>
-                      <div className="space-y-1 text-sm">
-                        {amountBreakdown.map((row, idx) => (
-                          <div key={idx} className="flex justify-between text-emerald-800">
-                            <span className="truncate">{String(row.customer_type).toUpperCase()} • {row.plan_type} • {String(row.payment_mode).replace('_',' ')}</span>
-                            <span>RM {(row.line_total ?? 0).toFixed(2)}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  <div className="flex justify-between">
-                    <span className="text-emerald-700">Currency:</span>
-                    <span className="font-medium text-emerald-800">MYR</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-emerald-700">Payment Status:</span>
-                    <span className="font-medium text-emerald-800">Ready for payment</span>
+              <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <div className="flex items-start space-x-3">
+                  <Clock className="w-5 h-5 text-yellow-600 mt-0.5" />
+                  <div>
+                    <h4 className="font-medium text-yellow-800">Processing Time</h4>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      Payment processing may take a few minutes. Please do not close this window 
+                      until you receive confirmation.
+                    </p>
                   </div>
                 </div>
               </div>
+            </div>
 
+            <div className="p-6 border-t border-gray-200">
               <div className="flex gap-3 justify-end">
                 <button
                   onClick={onClose}
@@ -451,18 +372,18 @@ export default function MedicalInsurancePaymentPage({
                 </button>
                 <button
                   onClick={handleProceedToPayment}
-                  disabled={loading}
-                  className="flex items-center gap-2 px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={loading || !totalAmount}
+                  className="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                 >
                   {loading ? (
                     <>
-                      <Clock className="w-4 h-4 animate-spin" />
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                       Processing...
                     </>
                   ) : (
                     <>
                       <CreditCard className="w-4 h-4" />
-                      Proceed to Payment
+                      Pay RM {totalAmount?.toFixed(2) || '0.00'}
                     </>
                   )}
                 </button>

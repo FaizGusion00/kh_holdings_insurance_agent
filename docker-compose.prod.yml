@@ -1,0 +1,92 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: kh-insurance-app
+    restart: unless-stopped
+    working_dir: /var/www/html
+    volumes:
+      - ./backend:/var/www/html/backend
+      - ./app:/var/www/html/app
+      - ./public:/var/www/html/public
+      - ./nginx.conf:/etc/nginx/sites-available/default
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+    depends_on:
+      - db
+      - redis
+    networks:
+      - kh-insurance-network
+
+  nginx:
+    image: nginx:alpine
+    container_name: kh-insurance-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./public:/var/www/html/public
+      - ./nginx.conf:/etc/nginx/sites-available/default
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - app
+    networks:
+      - kh-insurance-network
+
+  db:
+    image: mysql:8.0
+    container_name: kh-insurance-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: kh_holdings_insurance
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init:/docker-entrypoint-initdb.d
+    ports:
+      - "3306:3306"
+    networks:
+      - kh-insurance-network
+
+  redis:
+    image: redis:alpine
+    container_name: kh-insurance-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    networks:
+      - kh-insurance-network
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    container_name: kh-insurance-queue
+    restart: unless-stopped
+    working_dir: /var/www/html/backend
+    command: php artisan queue:work --sleep=3 --tries=3 --max-time=3600
+    volumes:
+      - ./backend:/var/www/html/backend
+    environment:
+      - APP_ENV=production
+      - APP_DEBUG=false
+    depends_on:
+      - db
+      - redis
+    networks:
+      - kh-insurance-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  kh-insurance-network:
+    driver: bridge

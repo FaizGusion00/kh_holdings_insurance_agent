@@ -263,6 +263,20 @@ class LaravelApiService {
     });
   }
 
+  async sendPhoneVerification(phoneData: { phone_number: string }): Promise<ApiResponse<{ verification_code: string }>> {
+    return this.makeRequest<{ verification_code: string }>('/auth/send-phone-verification', {
+      method: 'POST',
+      body: JSON.stringify(phoneData),
+    });
+  }
+
+  async verifyPhoneChange(verificationData: { phone_number: string; verification_code: string }): Promise<ApiResponse<{ user: User }>> {
+    return this.makeRequest<{ user: User }>('/auth/verify-phone-change', {
+      method: 'POST',
+      body: JSON.stringify(verificationData),
+    });
+  }
+
   async getMe(): Promise<ApiResponse<{ user: User }>> {
     return this.makeRequest<{ user: User }>('/auth/me');
   }
@@ -359,6 +373,19 @@ class LaravelApiService {
 
   async getLevelSummary(): Promise<ApiResponse<any>> {
     return this.makeRequest('/mlm/level-summary');
+  }
+
+  async getReferrals(): Promise<ApiResponse<any>> {
+    return this.makeRequest('/mlm/referrals');
+  }
+
+  async getDownlines(level?: number): Promise<ApiResponse<any>> {
+    const params = level ? `?level=${level}` : '';
+    return this.makeRequest(`/mlm/downlines${params}`);
+  }
+
+  async getCommissionSummary(): Promise<ApiResponse<any>> {
+    return this.makeRequest('/mlm/commission-summary');
   }
 
   async registerClient(clientData: any): Promise<ApiResponse<{ client: User }>> {
@@ -502,6 +529,35 @@ class LaravelApiService {
 
   isAuthenticated(): boolean {
     return !!this.token;
+  }
+
+  // =====================
+  // GENERAL HTTP METHODS
+  // =====================
+
+  async get<T>(url: string, params?: Record<string, any>): Promise<ApiResponse<T>> {
+    const queryString = params ? '?' + new URLSearchParams(params as any).toString() : '';
+    return this.makeRequest<T>(`${url}${queryString}`);
+  }
+
+  async post<T>(url: string, data: any): Promise<ApiResponse<T>> {
+    return this.makeRequest<T>(url, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async put<T>(url: string, data: any): Promise<ApiResponse<T>> {
+    return this.makeRequest<T>(url, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  }
+
+  async delete<T>(url: string): Promise<ApiResponse<T>> {
+    return this.makeRequest<T>(url, {
+      method: 'DELETE',
+    });
   }
 
   // =====================
