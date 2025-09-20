@@ -59,6 +59,7 @@ export default function AgentWalletPage() {
   const [showWithdrawalModal, setShowWithdrawalModal] = useState(false);
   const [withdrawalAmount, setWithdrawalAmount] = useState("");
   const [withdrawalNotes, setWithdrawalNotes] = useState("");
+  const [isSubmittingWithdrawal, setIsSubmittingWithdrawal] = useState(false);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -88,8 +89,12 @@ export default function AgentWalletPage() {
   };
 
   const handleWithdrawalRequest = async () => {
-    if (!withdrawalAmount || parseFloat(withdrawalAmount) <= 0) {
-      setError("Please enter a valid withdrawal amount");
+    if (isSubmittingWithdrawal) {
+      return;
+    }
+    
+    if (!withdrawalAmount || parseFloat(withdrawalAmount) < 1) {
+      setError("Minimum withdrawal amount is RM 1.00");
       return;
     }
 
@@ -99,16 +104,25 @@ export default function AgentWalletPage() {
     }
 
     try {
+      setIsSubmittingWithdrawal(true);
+      setError("");
+      
       const response = await apiService.requestWithdrawal({
         amount: parseFloat(withdrawalAmount),
         notes: withdrawalNotes,
       });
+
+      console.log('Withdrawal response:', response);
+      console.log('Response success:', response.success);
+      console.log('Response status:', response.status);
 
       if (response.success) {
         setShowWithdrawalModal(false);
         setWithdrawalAmount("");
         setWithdrawalNotes("");
         setError("");
+        // Show success message
+        alert("Withdrawal request submitted successfully! Your request is pending approval.");
         loadWalletData(); // Refresh
       } else {
         setError(response.message || "Failed to submit withdrawal request");
@@ -119,10 +133,15 @@ export default function AgentWalletPage() {
           ? err.message
           : "Failed to submit withdrawal request"
       );
+    } finally {
+      setIsSubmittingWithdrawal(false);
     }
   };
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number | undefined) => {
+    if (amount === undefined || amount === null || isNaN(amount)) {
+      return "RM 0.00";
+    }
     return `RM ${amount.toLocaleString("en-MY", {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
@@ -454,44 +473,68 @@ export default function AgentWalletPage() {
               <h3 className="text-lg font-semibold text-gray-800 mb-4">
                 Request Withdrawal
               </h3>
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Amount (RM)
-                  </label>
-                  <input
-                    type="number"
-                    value={withdrawalAmount}
-                    onChange={(e) => setWithdrawalAmount(e.target.value)}
-                    placeholder="0.00"
-                    className="w-full border px-3 py-2 rounded-md"
-                  />
+              {error && (
+                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <div className="flex items-center">
+                    <div className="w-4 h-4 text-red-600 mr-2">⚠️</div>
+                    <span className="text-red-800 text-sm">{error}</span>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-700 block mb-1">
-                    Notes (optional)
-                  </label>
-                  <textarea
-                    value={withdrawalNotes}
-                    onChange={(e) => setWithdrawalNotes(e.target.value)}
-                    className="w-full border px-3 py-2 rounded-md"
-                  />
+              )}
+              <form onSubmit={(e) => {
+                e.preventDefault();
+                handleWithdrawalRequest();
+              }}>
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      Amount (RM)
+                    </label>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={withdrawalAmount}
+                      onChange={(e) => setWithdrawalAmount(e.target.value)}
+                      placeholder="1.00"
+                      className="w-full border px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-700 block mb-1">
+                      Notes (optional)
+                    </label>
+                    <textarea
+                      value={withdrawalNotes}
+                      onChange={(e) => setWithdrawalNotes(e.target.value)}
+                      className="w-full border px-3 py-2 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      rows={3}
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="flex gap-3 mt-6">
-                <button
-                  onClick={() => setShowWithdrawalModal(false)}
-                  className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleWithdrawalRequest}
-                  className="flex-1 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                >
-                  Submit
-                </button>
-              </div>
+                <div className="flex gap-3 mt-6">
+                  <button
+                    type="button"
+                    onClick={() => setShowWithdrawalModal(false)}
+                    className="flex-1 py-2 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    onClick={(e) => {
+                      console.log('Submit button clicked');
+                      e.preventDefault();
+                      handleWithdrawalRequest();
+                    }}
+                    disabled={isSubmittingWithdrawal}
+                    className="flex-1 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isSubmittingWithdrawal ? 'Submitting...' : 'Submit'}
+                  </button>
+                </div>
+              </form>
             </motion.div>
           </motion.div>
         )}

@@ -8,8 +8,9 @@ class InsurancePlan extends Model
 {
     protected $fillable = [
         'price_cents',
-        'plan_name',
-        'plan_code',
+        'commitment_fee_cents',
+        'name',
+        'slug',
         'description',
         'monthly_price',
         'quarterly_price',

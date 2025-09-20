@@ -99,6 +99,11 @@ class User extends Authenticatable implements JWTSubject
         return $this->hasMany(MemberPolicy::class);
     }
 
+    public function networkLevels()
+    {
+        return $this->hasMany(NetworkLevel::class);
+    }
+
     public function policies()
     {
         return $this->hasMany(MemberPolicy::class);

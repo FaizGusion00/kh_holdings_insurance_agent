@@ -94,6 +94,11 @@ class MedicalRegistrationController extends Controller
                         'password' => Hash::make($clientData['password']), // Use password from request
                         'referrer_code' => $agent->agent_code,
                         'customer_type' => 'client',
+                        'medical_card_type' => $clientData['medical_card_type'], // Add medical card type
+                        'payment_mode' => $clientData['payment_mode'], // Add payment mode
+                        'current_payment_mode' => $clientData['payment_mode'], // Add current payment mode
+                        'plan_name' => $plan->name, // Add plan name
+                        'current_insurance_plan_id' => $plan->id, // Add plan ID
                     ];
                     if (\Schema::hasColumn('users', 'status')) {
                         $clientDataToCreate['status'] = 'pending_payment';
@@ -119,15 +124,29 @@ class MedicalRegistrationController extends Controller
 
                     $client = User::create($safePayload);
 
+                    // Calculate policy dates
+                    $startDate = now()->toDateString();
+                    $endDate = $this->calculateEndDate($clientData['payment_mode']);
+                    $nextPaymentDue = $this->calculateNextPaymentDue($startDate, $clientData['payment_mode']);
+
                     // Create policy for the client
                     $policy = MemberPolicy::create([
                         'user_id' => $client->id,
                         'plan_id' => $plan->id,
                         'policy_number' => 'POL' . time() . $client->id,
-                        'start_date' => now()->toDateString(),
-                        'end_date' => $this->calculateEndDate($clientData['payment_mode']),
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
                         'status' => 'pending',
                         'auto_renew' => true,
+                    ]);
+
+                    // Update user with policy information
+                    $client->update([
+                        'policy_start_date' => $startDate,
+                        'policy_end_date' => $endDate,
+                        'next_payment_due' => $nextPaymentDue,
+                        'policy_status' => 'pending',
+                        'premium_amount' => $this->calculatePlanAmount($plan, $clientData['payment_mode']),
                     ]);
 
                     $clients[] = $client;
@@ -178,7 +197,11 @@ class MedicalRegistrationController extends Controller
         ]);
 
         try {
-            $policies = MemberPolicy::whereIn('id', $validated['policy_ids'])->get();
+            Log::info('Creating payment for policy IDs: ' . json_encode($validated['policy_ids']));
+            
+            $policies = MemberPolicy::with(['plan', 'user'])->whereIn('id', $validated['policy_ids'])->get();
+            Log::info('Found policies: ' . $policies->count());
+            
             $totalAmountCents = 0;
             $planIds = [];
 
@@ -211,29 +234,66 @@ class MedicalRegistrationController extends Controller
                 ],
             ]);
 
-            // Create Curlec order
+            // Create Curlec subscription
             try {
-                $curlecOrder = $curlecService->createOrder($payment);
+                // Check if policies exist
+                if ($policies->isEmpty()) {
+                    throw new \Exception('No policies found for the given policy IDs');
+                }
+                
+                // Get the first plan for subscription creation
+                $firstPolicy = $policies->first();
+                $firstPlan = $firstPolicy->plan;
+                
+                if (!$firstPlan) {
+                    throw new \Exception('Plan not found for policy ID: ' . $firstPolicy->id);
+                }
+                
+                $paymentMode = $firstPolicy->user->current_payment_mode ?? 'monthly';
+                
+                // Create subscription plan
+                Log::info('Creating subscription plan for plan ID: ' . $firstPlan->id . ', mode: ' . $paymentMode);
+                $subscriptionPlan = $curlecService->createSubscriptionPlan($firstPlan, $paymentMode);
+                Log::info('Subscription plan created: ' . json_encode($subscriptionPlan));
+                
+                if (!isset($subscriptionPlan['id'])) {
+                    throw new \Exception('Failed to create subscription plan: ' . json_encode($subscriptionPlan));
+                }
+                
+                // Create subscription
+                Log::info('Creating subscription for payment ID: ' . $payment->id . ', plan ID: ' . $subscriptionPlan['id']);
+                $subscription = $curlecService->createSubscription($payment, $subscriptionPlan['id']);
+                Log::info('Subscription created: ' . json_encode($subscription));
+                
+                if (!isset($subscription['id'])) {
+                    throw new \Exception('Failed to create subscription: ' . json_encode($subscription));
+                }
+                
                 $payment->update([
-                    'external_ref' => $curlecOrder['order_id'],
-                    'meta' => array_merge($payment->meta, ['curlec_order' => $curlecOrder])
+                    'external_ref' => $subscription['id'],
+                    'meta' => array_merge($payment->meta, [
+                        'curlec_subscription' => $subscription,
+                        'curlec_plan' => $subscriptionPlan
+                    ])
                 ]);
 
                 $checkoutData = [
                     'payment_id' => $payment->id,
                     'amount' => $totalAmountCents / 100,
-                    'currency' => $curlecOrder['currency'],
-                    'order_id' => $curlecOrder['order_id'],
-                    'checkout_url' => $curlecOrder['checkout_url'],
+                    'currency' => 'MYR',
+                    'subscription_id' => $subscription['id'],
+                    'plan_id' => $subscriptionPlan['id'],
+                    'checkout_url' => null, // Will be handled by frontend
                 ];
             } catch (\Exception $e) {
-                Log::warning('Curlec order creation failed, using mock: ' . $e->getMessage());
+                Log::warning('Curlec subscription creation failed, using mock: ' . $e->getMessage());
                 
                 $checkoutData = [
                     'payment_id' => $payment->id,
                     'amount' => $totalAmountCents / 100,
                     'currency' => 'MYR',
-                    'order_id' => 'MOCK-' . $payment->id,
+                    'subscription_id' => 'sub_MOCK_' . $payment->id,
+                    'plan_id' => 'plan_MOCK_' . $policies->first()->plan_id,
                     'checkout_url' => null,
                 ];
             }
@@ -437,6 +497,7 @@ class MedicalRegistrationController extends Controller
         
         switch ($paymentMode) {
             case 'monthly':
+                // Monthly amount only (commitment fee is separate)
                 return intval($annualAmountCents / 12);
             case 'quarterly':
                 return intval($annualAmountCents / 4);
@@ -446,6 +507,45 @@ class MedicalRegistrationController extends Controller
                 return $annualAmountCents;
             default:
                 return $annualAmountCents;
+        }
+    }
+
+    private function calculateNextPaymentDue($startDate, $paymentMode)
+    {
+        $start = \Carbon\Carbon::parse($startDate);
+        $now = \Carbon\Carbon::now();
+        
+        switch ($paymentMode) {
+            case 'monthly':
+                // Find next monthly payment
+                $nextDue = $start->copy();
+                while ($nextDue->lte($now)) {
+                    $nextDue->addMonth();
+                }
+                return $nextDue->toDateString();
+            case 'quarterly':
+                // Find next quarterly payment
+                $nextDue = $start->copy();
+                while ($nextDue->lte($now)) {
+                    $nextDue->addMonths(3);
+                }
+                return $nextDue->toDateString();
+            case 'semi_annually':
+                // Find next semi-annual payment
+                $nextDue = $start->copy();
+                while ($nextDue->lte($now)) {
+                    $nextDue->addMonths(6);
+                }
+                return $nextDue->toDateString();
+            case 'annually':
+                // Find next annual payment
+                $nextDue = $start->copy();
+                while ($nextDue->lte($now)) {
+                    $nextDue->addYear();
+                }
+                return $nextDue->toDateString();
+            default:
+                return null;
         }
     }
 

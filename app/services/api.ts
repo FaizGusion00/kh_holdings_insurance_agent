@@ -353,8 +353,11 @@ class ApiServiceBridge {
       const response = await laravelApi.getNetwork(params);
       
       if (response.status === 'success' && response.data) {
-        // Convert network members to Member format
-        const members: Member[] = (response.data.network_members || []).map((member: any) => ({
+        // For dashboard, only show direct referrals (level 1), not all network members
+        const directReferrals = (response.data as any).direct_referrals || [];
+        
+        // Convert direct referrals to Member format
+        const members: Member[] = directReferrals.map((member: any) => ({
           id: member.id,
           name: member.name,
           email: member.email,
@@ -399,12 +402,35 @@ class ApiServiceBridge {
       
       if (response.status === 'success' && response.data) {
         const laravelWallet = response.data as any;
+        
+        // Transform transactions to match frontend interface
+        const transformedTransactions = (laravelWallet.recent_transactions || []).map((tx: any) => ({
+          id: tx.id,
+          type: tx.type,
+          amount: tx.amount_cents ? tx.amount_cents / 100 : 0, // Convert cents to dollars
+          description: tx.source || 'Transaction',
+          status: 'completed', // Default status
+          created_at: tx.created_at,
+          commission_id: tx.commission_transaction_id
+        }));
+        
+        // Transform withdrawal requests to match frontend interface
+        const transformedWithdrawals = (laravelWallet.withdrawal_requests || []).map((req: any) => ({
+          id: req.id,
+          amount: req.amount_cents ? req.amount_cents / 100 : 0, // Convert cents to dollars
+          status: req.status,
+          created_at: req.created_at,
+          processed_at: req.updated_at,
+          admin_notes: req.bank_meta?.notes || null,
+          proof_url: req.bank_meta?.proof_url || null
+        }));
+        
         const walletData: WalletData = {
           balance: laravelWallet.balance || 0,
-          pending_commissions: laravelWallet.pending_commissions || laravelWallet.pending_commission || 0,
+          pending_commissions: 0, // Not available in current backend
           total_earned: laravelWallet.total_earned || 0,
-          recent_transactions: laravelWallet.recent_transactions || [],
-          withdrawal_requests: laravelWallet.withdrawal_requests || []
+          recent_transactions: transformedTransactions,
+          withdrawal_requests: transformedWithdrawals
         };
         
         return {
@@ -429,11 +455,13 @@ class ApiServiceBridge {
   }
 
   async getWalletTransactions(page: number = 1): Promise<ApiResponse<any>> {
-    return laravelApi.getWalletTransactions(page);
+    const response = await laravelApi.getWalletTransactions(page);
+    return this.convertResponse(response);
   }
 
   async createWithdrawalRequest(data: any): Promise<ApiResponse<any>> {
-    return laravelApi.createWithdrawalRequest(data);
+    const response = await laravelApi.createWithdrawalRequest(data);
+    return this.convertResponse(response);
   }
 
   // =====================
@@ -441,15 +469,18 @@ class ApiServiceBridge {
   // =====================
 
   async getPayments(params?: any): Promise<ApiResponse<any>> {
-    return laravelApi.getPayments(params);
+    const response = await laravelApi.getPayments(params);
+    return this.convertResponse(response);
   }
 
   async createPayment(data: any): Promise<ApiResponse<any>> {
-    return laravelApi.createPayment(data);
+    const response = await laravelApi.createPayment(data);
+    return this.convertResponse(response);
   }
 
   async getPaymentReceipt(paymentId: number): Promise<ApiResponse<any>> {
-    return laravelApi.getReceipt(paymentId);
+    const response = await laravelApi.getReceipt(paymentId);
+    return this.convertResponse(response);
   }
 
   // Additional payment methods for profile page
@@ -468,15 +499,13 @@ class ApiServiceBridge {
 
   // Medical insurance payment methods
   async getMedicalInsurancePaymentConfig(): Promise<ApiResponse<any>> {
-    // Return mock payment config for now
+    // Return payment config with correct structure
     return {
       status: 'success',
       success: true,
       data: {
-        curlec: {
-          key_id: process.env.NEXT_PUBLIC_CURLEC_KEY_ID,
-          sandbox: process.env.NEXT_PUBLIC_CURLEC_SANDBOX === 'true'
-        }
+        key_id: process.env.NEXT_PUBLIC_CURLEC_KEY_ID,
+        sandbox: process.env.NEXT_PUBLIC_CURLEC_SANDBOX === 'true'
       }
     };
   }
@@ -577,7 +606,8 @@ class ApiServiceBridge {
   }
 
   async getInsurancePlan(id: number): Promise<ApiResponse<{ plan: InsurancePlan }>> {
-    return laravelApi.getInsurancePlan(id);
+    const response = await laravelApi.getInsurancePlan(id);
+    return this.convertResponse(response);
   }
 
   // For medical insurance form compatibility
@@ -586,23 +616,27 @@ class ApiServiceBridge {
       const response = await laravelApi.getInsurancePlans();
       
       if (response.status === 'success' && response.data) {
+        // The new API structure returns data directly as an array
+        const plansData = Array.isArray(response.data) ? response.data : response.data.plans || [];
+        
         // Transform to match expected format with correct pricing structure
-        const plans = response.data.plans.map((plan: any) => ({
+        const plans = plansData.map((plan: any) => ({
           id: plan.id,
-          name: plan.plan_name,
+          name: plan.name, // Changed from plan_name to name
           plan_code: plan.plan_code,
           description: plan.description,
           pricing: {
             monthly: { base_price: plan.pricing?.monthly?.base_price || '0' },
-            quarterly: { base_price: plan.pricing?.quarterly?.base_price || '0' },
-            semi_annually: { base_price: plan.pricing?.semi_annually?.base_price || '0' },
+            quarterly: { base_price: plan.pricing?.quarterly?.base_price || null },
+            semi_annually: { base_price: plan.pricing?.semi_annually?.base_price || null },
             annually: { base_price: plan.pricing?.annually?.base_price || '0' }
           },
           commitment_fee: plan.commitment_fee || '0',
           coverage_details: plan.benefits,
           terms_conditions: plan.terms_conditions,
           min_age: plan.min_age || 0,
-          max_age: plan.max_age || 100
+          max_age: plan.max_age || 100,
+          available_modes: plan.available_modes || ['monthly', 'quarterly', 'semi_annually', 'annually']
         }));
         
         return {
@@ -700,11 +734,13 @@ class ApiServiceBridge {
   }
 
   async searchHospitals(query: string): Promise<ApiResponse<{ hospitals: Hospital[] }>> {
-    return laravelApi.searchHospitals(query);
+    const response = await laravelApi.searchHospitals(query);
+    return this.convertResponse(response);
   }
 
   async searchClinics(query: string): Promise<ApiResponse<{ clinics: Clinic[] }>> {
-    return laravelApi.searchClinics(query);
+    const response = await laravelApi.searchClinics(query);
+    return this.convertResponse(response);
   }
 
   // =====================
@@ -744,15 +780,18 @@ class ApiServiceBridge {
   }
 
   async markNotificationAsRead(id: number): Promise<ApiResponse> {
-    return laravelApi.markNotificationAsRead(id);
+    const response = await laravelApi.markNotificationAsRead(id);
+    return this.convertResponse(response);
   }
 
   async markAllNotificationsAsRead(): Promise<ApiResponse> {
-    return laravelApi.markAllNotificationsAsRead();
+    const response = await laravelApi.markAllNotificationsAsRead();
+    return this.convertResponse(response);
   }
 
   async getUnreadNotificationsCount(): Promise<ApiResponse<{ unread_count: number }>> {
-    return laravelApi.getUnreadNotificationsCount();
+    const response = await laravelApi.getUnreadNotificationsCount();
+    return this.convertResponse(response);
   }
 
   // =====================
@@ -760,15 +799,23 @@ class ApiServiceBridge {
   // =====================
 
   async getNetwork(params?: any): Promise<ApiResponse<any>> {
-    return laravelApi.getNetwork(params);
+    const response = await laravelApi.getNetwork(params);
+    return this.convertResponse(response);
   }
 
   async getCommissionHistory(params?: any): Promise<ApiResponse<any>> {
-    return laravelApi.getCommissionHistory(params);
+    const response = await laravelApi.getCommissionHistory(params);
+    return this.convertResponse(response);
+  }
+
+  async getCommissionSummary(): Promise<ApiResponse<any>> {
+    const response = await laravelApi.getCommissionSummary();
+    return this.convertResponse(response);
   }
 
   async registerClient(clientData: any): Promise<ApiResponse<any>> {
-    return laravelApi.registerClient(clientData);
+    const response = await laravelApi.registerClient(clientData);
+    return this.convertResponse(response);
   }
 
   // Medical Insurance Registration methods
@@ -809,29 +856,7 @@ class ApiServiceBridge {
   async createMedicalInsurancePayment(paymentData: any): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.post('/medical-registration/payment', paymentData);
-      
-      if (response.status === 'success' && response.data) {
-        // Define the expected response structure
-        const responseData = response.data as {
-          payment: any;
-          checkout_data: any;
-        };
-        
-        return {
-          status: 'success',
-          success: true,
-          data: {
-            payment: responseData.payment,
-            checkout_data: responseData.checkout_data,
-          }
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Payment creation failed'
-      };
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
@@ -844,20 +869,7 @@ class ApiServiceBridge {
   async verifyMedicalInsurancePayment(verificationData: any): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.post('/medical-registration/verify', verificationData);
-      
-      if (response.status === 'success') {
-        return {
-          status: 'success',
-          success: true,
-          message: response.message || 'Payment verified successfully'
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Payment verification failed'
-      };
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
@@ -870,28 +882,7 @@ class ApiServiceBridge {
   async createMedicalInsurancePaymentExternal(paymentData: any): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.post('/medical-registration/external/payment', paymentData);
-      
-      if (response.status === 'success' && response.data) {
-        const responseData = response.data as {
-          payment: any;
-          checkout_data: any;
-        };
-        
-        return {
-          status: 'success',
-          success: true,
-          data: {
-            payment: responseData.payment,
-            checkout_data: responseData.checkout_data,
-          }
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Payment creation failed'
-      };
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
@@ -904,20 +895,7 @@ class ApiServiceBridge {
   async verifyMedicalInsurancePaymentExternal(verificationData: any): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.post('/medical-registration/external/verify', verificationData);
-      
-      if (response.status === 'success') {
-        return {
-          status: 'success',
-          success: true,
-          message: response.message || 'Payment verified successfully'
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Payment verification failed'
-      };
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
@@ -930,20 +908,7 @@ class ApiServiceBridge {
   async getMedicalInsuranceReceipt(paymentId: number): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.get(`/medical-registration/receipt/${paymentId}`);
-      
-      if (response.status === 'success' && response.data) {
-        return {
-          status: 'success',
-          success: true,
-          data: response.data
-        };
-      }
-      
-      return {
-        status: 'error',
-        success: false,
-        message: response.message || 'Receipt not found'
-      };
+      return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
@@ -956,7 +921,26 @@ class ApiServiceBridge {
   // Additional MLM methods for profile page
   async getReferrals(): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getReferrals();
+      // Get full network hierarchy for referrer tab - all levels  
+      const response = await laravelApi.getNetwork({ level: 5 } as any);
+      
+      if (response.status === 'success' && response.data) {
+        // Return the full network structure with level breakdown
+        const dataResponse = response.data as any;
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            network_members: dataResponse.network_members || [],
+            level_breakdown: dataResponse.level_breakdown || {},
+            total_members: dataResponse.total_members || 0,
+            direct_referrals: dataResponse.direct_referrals || [],
+            direct_referrals_count: dataResponse.direct_referrals_count || 0,
+            total_downlines: dataResponse.total_downlines || 0
+          }
+        };
+      }
+      
       return this.convertResponse(response);
     } catch (error) {
       return {
@@ -969,7 +953,7 @@ class ApiServiceBridge {
 
   async getDownlines(level?: number): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getDownlines(level);
+      const response = await laravelApi.getDownlines(level || 5);
       return this.convertResponse(response);
     } catch (error) {
       return {
@@ -980,29 +964,33 @@ class ApiServiceBridge {
     }
   }
 
-  async getCommissionSummary(): Promise<ApiResponse<any>> {
+  // Method specifically for getting full network hierarchy
+  async getNetworkHierarchy(levels: number = 5): Promise<ApiResponse<any>> {
     try {
-      const response = await laravelApi.getCommissionSummary();
+      const response = await laravelApi.getNetwork({ level: levels } as any);
       return this.convertResponse(response);
     } catch (error) {
       return {
         status: 'error',
         success: false,
-        message: error instanceof Error ? error.message : 'Failed to get commission summary'
+        message: error instanceof Error ? error.message : 'Failed to get network hierarchy'
       };
     }
   }
+
 
   // =====================
   // POLICIES
   // =====================
 
   async getPolicies(params?: any): Promise<ApiResponse<any>> {
-    return laravelApi.getPolicies(params);
+    const response = await laravelApi.getPolicies(params);
+    return this.convertResponse(response);
   }
 
   async purchasePolicy(data: any): Promise<ApiResponse<any>> {
-    return laravelApi.purchasePolicy(data);
+    const response = await laravelApi.purchasePolicy(data);
+    return this.convertResponse(response);
   }
 
   // =====================
@@ -1104,6 +1092,21 @@ class ApiServiceBridge {
     try {
       // Bank info is part of profile, so use updateProfile
       const response = await laravelApi.updateProfile(bankData);
+      
+      if (response.status === 'success' && response.data) {
+        // Convert the updated user data to frontend format
+        const updatedUser = this.convertUserFormat(response.data.user);
+        
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            user: updatedUser,
+            message: 'Bank information updated successfully'
+          }
+        };
+      }
+      
       return this.convertResponse(response);
     } catch (error) {
       return {
@@ -1115,12 +1118,77 @@ class ApiServiceBridge {
   }
 
   // Missing methods from frontend components
-  async requestWithdrawal(data: any): Promise<ApiResponse<any>> {
-    return this.createWithdrawalRequest(data);
+  async requestWithdrawal(data: { amount: number; notes?: string }): Promise<ApiResponse<any>> {
+    try {
+      // Get user profile first to get bank information
+      const profileResponse = await this.getProfile();
+      
+      if (!profileResponse.success || !profileResponse.data?.user) {
+        return {
+          status: 'error',
+          success: false,
+          message: 'Unable to get user profile for withdrawal request'
+        };
+      }
+      
+      const user = profileResponse.data.user;
+      
+      // Debug: Log user data to see what fields are available
+      console.log('User profile data for withdrawal:', user);
+      console.log('Bank fields:', {
+        bank_name: user.bank_name,
+        bank_account_number: user.bank_account_number,
+        bank_account_owner: user.bank_account_owner
+      });
+      console.log('All user keys:', Object.keys(user));
+      
+      // Check if user has bank information - also check alternative field names
+      const userAny = user as any;
+      const bankName = user.bank_name || userAny.bankName;
+      const bankAccountNumber = user.bank_account_number || userAny.bankAccountNumber;
+      const bankAccountOwner = user.bank_account_owner || userAny.bankAccountOwner;
+      
+      if (!bankName || !bankAccountNumber || !bankAccountOwner) {
+        return {
+          status: 'error',
+          success: false,
+          message: `Please update your bank information in profile before requesting withdrawal. Missing: ${!bankName ? 'Bank Name' : ''} ${!bankAccountNumber ? 'Account Number' : ''} ${!bankAccountOwner ? 'Account Owner' : ''}`.trim()
+        };
+      }
+      
+      // Transform data to match backend API requirements
+      const withdrawalData = {
+        amount: data.amount,
+        bank_name: bankName,
+        bank_account_number: bankAccountNumber,
+        bank_account_owner: bankAccountOwner,
+      };
+      
+      console.log('Sending withdrawal request with data:', withdrawalData);
+      const result = await this.createWithdrawalRequest(withdrawalData);
+      console.log('Withdrawal request result:', result);
+      return result;
+    } catch (error) {
+      console.error('Withdrawal request error:', error);
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to create withdrawal request'
+      };
+    }
   }
 
   async getClients(page?: number): Promise<ApiResponse<any>> {
-    return this.getMembers();
+    try {
+      const response = await laravelApi.getMedicalClients(page);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get medical clients'
+      };
+    }
   }
 
   async getClientPayments(clientId: number): Promise<ApiResponse<any>> {
@@ -1129,6 +1197,32 @@ class ApiServiceBridge {
       success: true,
       data: { data: [] }
     };
+  }
+
+  async getClientPolicies(clientId: number): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.get(`/mlm/client-policies/${clientId}`);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get client policies'
+      };
+    }
+  }
+
+  async updatePolicyStatus(policyId: number, status: string): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.put(`/mlm/policy/${policyId}/status`, { status });
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to update policy status'
+      };
+    }
   }
 
   async getUserDownlines(userId: number, level?: number, page?: number): Promise<ApiResponse<any>> {
@@ -1167,6 +1261,7 @@ class ApiServiceBridge {
       }
     };
   }
+
 
   async sendTac(phoneNumber: string, type: string): Promise<ApiResponse<any>> {
     return {
@@ -1242,7 +1337,16 @@ class ApiServiceBridge {
       address: laravelUser.address,
       city: laravelUser.city,
       state: laravelUser.state,
-      postal_code: laravelUser.postal_code
+      postal_code: laravelUser.postal_code,
+      // Bank information
+      bank_name: laravelUser.bank_name,
+      bank_account_number: laravelUser.bank_account_number,
+      bank_account_owner: laravelUser.bank_account_owner,
+      // Additional member fields
+      relationship_with_agent: laravelUser.relationship_with_agent,
+      emergency_contact_name: laravelUser.emergency_contact_name,
+      emergency_contact_phone: laravelUser.emergency_contact_phone,
+      emergency_contact_relationship: laravelUser.emergency_contact_relationship
     };
   }
 
@@ -1330,6 +1434,41 @@ class ApiServiceBridge {
         status: 'error',
         success: false,
         message: error instanceof Error ? error.message : 'Failed to verify bulk payment'
+      };
+    }
+  }
+
+  async processContinuePayment(paymentData: {
+    policy_id: number;
+    payment_method: 'curlec' | 'manual';
+    return_url?: string;
+    cancel_url?: string;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/mlm/continue-payment', paymentData);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to process continue payment'
+      };
+    }
+  }
+
+  async verifyContinuePayment(verificationData: {
+    payment_id: number;
+    status: 'success' | 'failed';
+    external_ref?: string;
+  }): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.post('/mlm/verify-continue-payment', verificationData);
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to verify continue payment'
       };
     }
   }

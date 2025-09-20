@@ -13,14 +13,15 @@ interface MedicalInsurancePlan {
   description: string;
   pricing: {
     monthly: { base_price: string };
-    quarterly: { base_price: string };
-    semi_annually: { base_price: string };
+    quarterly: { base_price: string | null };
+    semi_annually: { base_price: string | null };
     annually: { base_price: string };
   };
   commitment_fee: string;
   coverage_details: any;
   max_age: number | null;
   min_age: number;
+  available_modes: string[];
 }
 
 interface ClientData {
@@ -70,6 +71,7 @@ export default function MedicalInsuranceRegistrationForm({
   const [error, setError] = useState("");
   const [showPaymentPage, setShowPaymentPage] = useState(false);
   const [registrationId, setRegistrationId] = useState<number | null>(null);
+  const [registrationData, setRegistrationData] = useState<any>(null);
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
   const [clients, setClients] = useState<ClientData[]>([
     {
@@ -186,7 +188,9 @@ export default function MedicalInsuranceRegistrationForm({
 
     const toNumber = (v: any) => {
       if (typeof v === 'number') return v;
-      const n = parseFloat(v ?? '0');
+      // Remove commas and parse as float
+      const cleanValue = String(v ?? '0').replace(/,/g, '');
+      const n = parseFloat(cleanValue);
       return Number.isNaN(n) ? 0 : n;
     };
 
@@ -194,9 +198,9 @@ export default function MedicalInsuranceRegistrationForm({
       case 'monthly':
         return toNumber(plan.pricing.monthly.base_price) || 0;
       case 'quarterly':
-        return toNumber(plan.pricing.quarterly.base_price) || 0;
+        return toNumber(plan.pricing.quarterly?.base_price) || 0;
       case 'semi_annually':
-        return toNumber(plan.pricing.semi_annually.base_price) || 0;
+        return toNumber(plan.pricing.semi_annually?.base_price) || 0;
       case 'annually':
         return toNumber(plan.pricing.annually.base_price) || 0;
       default:
@@ -210,7 +214,9 @@ export default function MedicalInsuranceRegistrationForm({
     
     const toNumber = (v: any) => {
       if (typeof v === 'number') return v;
-      const n = parseFloat(v ?? '0');
+      // Remove commas and parse as float
+      const cleanValue = String(v ?? '0').replace(/,/g, '');
+      const n = parseFloat(cleanValue);
       return Number.isNaN(n) ? 0 : n;
     };
 
@@ -351,6 +357,7 @@ export default function MedicalInsuranceRegistrationForm({
         
       if (response.success && response.data && response.data.registration_id) {
         setRegistrationId(response.data.registration_id);
+        setRegistrationData(response.data); // Store the full registration data including policies
         setShowPaymentPage(true);
       } else {
         if (response.errors) {
@@ -384,6 +391,7 @@ export default function MedicalInsuranceRegistrationForm({
   const handlePaymentClose = () => {
     setShowPaymentPage(false);
     setRegistrationId(null);
+    setRegistrationData(null);
   };
 
   const renderClientForm = (client: ClientData, index: number) => {
@@ -845,50 +853,38 @@ export default function MedicalInsuranceRegistrationForm({
               Contribution Amount ({client.plan_type}): <span className="text-red-500">*</span>
             </label>
             <div className="space-y-2">
-              <label className="flex items-center justify-between p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                <span>Monthly (RM{getPlanPrice(client.plan_type, 'monthly')}{getCommitmentFee(client.plan_type, 'monthly') > 0 ? ` + Commitment Fee RM${getCommitmentFee(client.plan_type, 'monthly')}` : ''})</span>
-                <input
-                  type="radio"
-                  name={`payment_mode_${index}`}
-                  value="monthly"
-                  checked={client.payment_mode === 'monthly'}
-                  onChange={(e) => updateClient(index, 'payment_mode', e.target.value)}
-                  className="mr-2"
-                />
-              </label>
-              <label className="flex items-center justify-between p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                <span>Quarterly (RM{getPlanPrice(client.plan_type, 'quarterly')})</span>
-                <input
-                  type="radio"
-                  name={`payment_mode_${index}`}
-                  value="quarterly"
-                  checked={client.payment_mode === 'quarterly'}
-                  onChange={(e) => updateClient(index, 'payment_mode', e.target.value)}
-                  className="mr-2"
-                />
-              </label>
-              <label className="flex items-center justify-between p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                <span>Half Yearly (RM{getPlanPrice(client.plan_type, 'semi_annually')})</span>
-                <input
-                  type="radio"
-                  name={`payment_mode_${index}`}
-                  value="semi_annually"
-                  checked={client.payment_mode === 'semi_annually'}
-                  onChange={(e) => updateClient(index, 'payment_mode', e.target.value)}
-                  className="mr-2"
-                />
-              </label>
-              <label className="flex items-center justify-between p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
-                <span>Yearly (RM{getPlanPrice(client.plan_type, 'annually')})</span>
-                <input
-                  type="radio"
-                  name={`payment_mode_${index}`}
-                  value="annually"
-                  checked={client.payment_mode === 'annually'}
-                  onChange={(e) => updateClient(index, 'payment_mode', e.target.value)}
-                  className="mr-2"
-                />
-              </label>
+              {(() => {
+                const plan = plans.find(p => p.name === client.plan_type);
+                const availableModes = plan?.available_modes || ['monthly', 'quarterly', 'semi_annually', 'annually'];
+                
+                return availableModes.map((mode) => {
+                  const modeLabels = {
+                    monthly: 'Monthly',
+                    quarterly: 'Quarterly', 
+                    semi_annually: 'Half Yearly',
+                    annually: 'Yearly'
+                  };
+                  
+                  const price = getPlanPrice(client.plan_type, mode);
+                  const commitmentFee = getCommitmentFee(client.plan_type, mode);
+                  
+                  return (
+                    <label key={mode} className="flex items-center justify-between p-3 border border-gray-300 rounded-lg cursor-pointer hover:bg-gray-50">
+                      <span>
+                        {modeLabels[mode as keyof typeof modeLabels]} (RM{price}{commitmentFee > 0 ? ` + Commitment Fee RM${commitmentFee}` : ''})
+                      </span>
+                      <input
+                        type="radio"
+                        name={`payment_mode_${index}`}
+                        value={mode}
+                        checked={client.payment_mode === mode}
+                        onChange={(e) => updateClient(index, 'payment_mode', e.target.value)}
+                        className="mr-2"
+                      />
+                    </label>
+                  );
+                });
+              })()}
             </div>
           </div>
 
@@ -1059,8 +1055,9 @@ export default function MedicalInsuranceRegistrationForm({
           isOpen={showPaymentPage}
           onClose={handlePaymentClose}
           onSuccess={handlePaymentSuccess}
-          initialTotalAmount={getGrandTotal()}
-          initialBreakdown={[]}
+          initialTotalAmount={registrationData?.total_amount || getGrandTotal()}
+          initialBreakdown={registrationData?.amount_breakdown || []}
+          initialPolicies={registrationData?.policies || []}
           externalMode={externalMode}
         />
       )}

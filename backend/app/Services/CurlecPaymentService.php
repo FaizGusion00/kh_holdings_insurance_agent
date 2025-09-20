@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\GatewayRecord;
+use App\Models\InsurancePlan;
 use App\Models\PaymentTransaction;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -22,10 +23,114 @@ class CurlecPaymentService
         $this->sandbox = (bool) config('services.curlec.sandbox', true);
     }
 
+    public function createSubscriptionPlan(InsurancePlan $plan, string $interval = 'monthly'): array
+    {
+        $intervalMap = [
+            'monthly' => 'monthly',
+            'quarterly' => 'quarterly', 
+            'semi_annually' => 'half_yearly',
+            'annually' => 'yearly'
+        ];
+
+        // Calculate the correct amount based on interval
+        $annualAmount = $plan->price_cents / 100; // Convert to RM
+        $monthlyAmount = $annualAmount / 12;
+        
+        $amount = match($interval) {
+            'quarterly' => $monthlyAmount * 3,
+            'semi_annually' => $monthlyAmount * 6,
+            'annually' => $annualAmount,
+            default => $monthlyAmount // monthly
+        };
+
+        $payload = [
+            'item' => [
+                'name' => $plan->name ?? 'Medical Insurance Plan',
+                'description' => $plan->description ?? 'Medical Insurance Plan',
+                'amount' => $amount, // Use calculated amount based on interval
+                'currency' => 'MYR'
+            ],
+            'period' => $intervalMap[$interval] ?? 'monthly',
+            'interval' => 1,
+            'notes' => [
+                'plan_id' => $plan->id,
+                'plan_slug' => $plan->slug ?? 'medical'
+            ]
+        ];
+
+        // If no keys configured, return a mock response for local testing
+        if (! $this->keyId || ! $this->keySecret) {
+            return [
+                'id' => 'plan_MOCK_' . $plan->id,
+                'item' => $payload['item'],
+                'period' => $payload['period'],
+                'interval' => $payload['interval'],
+                'status' => 'active'
+            ];
+        }
+
+        $response = $this->makeRequest('POST', '/plans', $payload);
+        
+        // Store gateway record
+        GatewayRecord::create([
+            'provider' => 'curlec',
+            'direction' => 'request',
+            'external_ref' => $response['id'] ?? null,
+            'payload' => $payload,
+            'status_code' => 200,
+        ]);
+
+        return $response;
+    }
+
+    public function createSubscription(PaymentTransaction $payment, string $planId): array
+    {
+        $payload = [
+            'plan_id' => $planId,
+            'total_count' => 12, // 12 months subscription
+            'quantity' => 1,
+            'customer_notify' => 1,
+            'start_at' => now()->addMinutes(1)->timestamp, // Start in 1 minute to avoid timing issues
+            'expire_by' => now()->addYear()->timestamp,
+            'notes' => [
+                'payment_id' => $payment->id,
+                'user_id' => $payment->user_id,
+                'plan_id' => $payment->plan_id,
+            ],
+        ];
+
+        // If no keys configured, return a mock response for local testing
+        if (! $this->keyId || ! $this->keySecret) {
+            return [
+                'id' => 'sub_MOCK_' . $payment->id,
+                'plan_id' => $planId,
+                'status' => 'created',
+                'current_start' => now()->timestamp,
+                'current_end' => now()->addMonth()->timestamp,
+                'ended_at' => null,
+                'quantity' => 1,
+                'notes' => $payload['notes']
+            ];
+        }
+
+        $response = $this->makeRequest('POST', '/subscriptions', $payload);
+        
+        // Store gateway record
+        GatewayRecord::create([
+            'provider' => 'curlec',
+            'direction' => 'request',
+            'external_ref' => $response['id'] ?? null,
+            'payload' => $payload,
+            'status_code' => 200,
+        ]);
+
+        return $response;
+    }
+
     public function createOrder(PaymentTransaction $payment): array
     {
         $payload = [
-            'amount' => $payment->amount_cents / 100, // Convert to RM
+            'amount' => $payment->amount_cents, // Amount in cents for Razorpay
             'currency' => 'MYR',
             'receipt' => 'KHI-' . $payment->id,
             'notes' => [
@@ -36,7 +141,7 @@ class CurlecPaymentService
         ];
 
         // If no keys configured, return a mock response for local testing
-        if ($this->sandbox && (! $this->keyId || ! $this->keySecret)) {
+        if (! $this->keyId || ! $this->keySecret) {
             return [
                 'order_id' => 'MOCK-' . $payment->id,
                 'amount' => $payload['amount'],
@@ -45,7 +150,7 @@ class CurlecPaymentService
             ];
         }
 
-        $response = $this->makeRequest('POST', '/v1/orders', $payload);
+        $response = $this->makeRequest('POST', '/orders', $payload);
         
         // Store gateway record
         GatewayRecord::create([
@@ -129,10 +234,18 @@ class CurlecPaymentService
     {
         $url = $this->baseUrl . $endpoint;
         
+        Log::info('Making Curlec API request', [
+            'method' => $method,
+            'url' => $url,
+            'endpoint' => $endpoint,
+            'base_url' => $this->baseUrl,
+            'key_id' => $this->keyId,
+            'data' => $data
+        ]);
+        
         $response = Http::withHeaders([
-            'Authorization' => 'Bearer ' . $this->keySecret,
+            'Authorization' => 'Basic ' . base64_encode($this->keyId . ':' . $this->keySecret),
             'Content-Type' => 'application/json',
-            'X-Curlec-Key' => $this->keyId,
         ])->$method($url, $data);
 
         if (!$response->successful()) {

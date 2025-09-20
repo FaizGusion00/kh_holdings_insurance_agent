@@ -59,6 +59,7 @@
 							@if($user->agent_code)
 								<a href="{{ route('admin.users.network', $user) }}" class="text-green-600 hover:text-green-900">Network</a>
 							@endif
+							<a href="{{ route('admin.users.medical', $user) }}" class="text-blue-600 hover:text-blue-900">Medical Info</a>
 							<form method="POST" action="{{ route('admin.users.destroy', $user) }}" class="inline" 
 								onsubmit="return confirm('Are you sure?')">
 								@csrf @method('DELETE')

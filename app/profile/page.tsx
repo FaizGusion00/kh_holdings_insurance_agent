@@ -15,8 +15,9 @@ import {
     Tooltip,
     Legend,
     ArcElement,
+    RadialLinearScale,
 } from 'chart.js';
-import { Line } from 'react-chartjs-2';
+import { Line, Bar, Doughnut } from 'react-chartjs-2';
 
 // Register Chart.js components
 ChartJS.register(
@@ -28,7 +29,8 @@ ChartJS.register(
     Title,
     Tooltip,
     Legend,
-    ArcElement
+    ArcElement,
+    RadialLinearScale
 );
 
 import { 
@@ -133,6 +135,11 @@ export default function ProfilePage() {
     const [walletData, setWalletData] = useState<any>(null);
     const [commissionHistory, setCommissionHistory] = useState<any[]>([]);
     const [isOverviewLoading, setIsOverviewLoading] = useState(false);
+    const [performanceData, setPerformanceData] = useState<any>(null);
+    const [monthlyStats, setMonthlyStats] = useState<any[]>([]);
+    const [registrationData, setRegistrationData] = useState<any>(null);
+    const [selectedPaymentPolicy, setSelectedPaymentPolicy] = useState<any>(null);
+    const [showPaymentConfirmationModal, setShowPaymentConfirmationModal] = useState(false);
     
     // Referrer tab states
     const [referralData, setReferralData] = useState<any>(null);
@@ -184,15 +191,18 @@ export default function ProfilePage() {
     const loadOverviewData = async () => {
         setIsOverviewLoading(true);
         try {
-            const [dashboardResponse, walletResponse, commissionResponse] = await Promise.all([
+            const [dashboardResponse, walletResponse, commissionResponse, walletTransactionsResponse, networkResponse] = await Promise.all([
                 apiService.getDashboardStats(),
                 apiService.getAgentWallet(),
-                apiService.getWalletTransactions(1)
+                apiService.getCommissionHistory(),
+                apiService.getWalletTransactions(1),
+                apiService.getNetwork()
             ]);
             
             if (dashboardResponse.success && dashboardResponse.data) {
                 setDashboardStats(dashboardResponse.data.stats);
                 setRecentActivities(dashboardResponse.data.recent_activities || []);
+                setPerformanceData(dashboardResponse.data.performance_data || null);
             }
             
             if (walletResponse.success && walletResponse.data) {
@@ -200,8 +210,21 @@ export default function ProfilePage() {
             }
             
             if (commissionResponse.success && commissionResponse.data) {
-                setCommissionHistory(commissionResponse.data.data || []);
+                // Map commission history data to ensure proper format for chart
+                const historyData = (commissionResponse.data.data || []).map((item: any) => ({
+                    ...item,
+                    amount: item.commission_cents ? (item.commission_cents / 100).toFixed(2) : item.amount || '0.00',
+                    created_at: item.created_at || item.date || new Date().toISOString()
+                }));
+                setCommissionHistory(historyData);
             }
+            
+            // Generate monthly stats for charts
+            if (networkResponse.success && networkResponse.data) {
+                const monthlyData = generateMonthlyStats(commissionHistory, networkResponse.data);
+                setMonthlyStats(monthlyData);
+            }
+            
         } catch (error) {
             console.error('Failed to load overview data:', error);
         } finally {
@@ -209,13 +232,42 @@ export default function ProfilePage() {
         }
     };
 
+    // Generate monthly statistics for charts
+    const generateMonthlyStats = (commissionData: any[], networkData: any) => {
+        const months = [];
+        const now = new Date();
+        
+        for (let i = 5; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const monthName = date.toLocaleDateString('en-US', { month: 'short' });
+            const year = date.getFullYear();
+            
+            // Calculate commission for this month
+            const monthCommission = commissionData
+                .filter(item => {
+                    const itemDate = new Date(item.created_at);
+                    return itemDate.getMonth() === date.getMonth() && itemDate.getFullYear() === year;
+                })
+                .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+            
+            months.push({
+                month: `${monthName} ${year}`,
+                shortMonth: monthName,
+                commission: monthCommission,
+                members: Math.floor(Math.random() * 10) + 1, // Mock data for now
+                policies: Math.floor(Math.random() * 5) + 1, // Mock data for now
+            });
+        }
+        
+        return months;
+    };
+
     // Load referrer data
     const loadReferrerData = async () => {
         setIsReferrerLoading(true);
         try {
-            const [referralsResponse, downlinesResponse, commissionSummaryResponse, commissionHistoryResponse] = await Promise.all([
+            const [referralsResponse, commissionSummaryResponse, commissionHistoryResponse] = await Promise.all([
                 apiService.getReferrals(),
-                apiService.getDownlines(2),
                 apiService.getCommissionSummary(),
                 apiService.getCommissionHistory()
             ]);
@@ -223,28 +275,40 @@ export default function ProfilePage() {
             if (referralsResponse.success && referralsResponse.data) {
                 // Normalize backend payloads to a consistent shape
                 const payload: any = referralsResponse.data as any;
-                const list = payload.direct_referrals || payload.network_members || payload.data || [];
-                const arrayList = Array.isArray(list?.data) ? list.data : list; // handle paginator or plain array
+                const directList = payload.direct_referrals || [];
+                const networkMembers = payload.network_members || [];
+                
                 setReferralData(payload);
-                setDirectReferrals(Array.isArray(arrayList) ? arrayList : []);
+                setDirectReferrals(Array.isArray(directList) ? directList : []);
+                setDownlines(Array.isArray(networkMembers) ? networkMembers : []);
                 setDownlineStats(
                     payload.downline_stats || {
-                        direct_referrals_count: payload.direct_referrals_count ?? (Array.isArray(arrayList) ? arrayList.length : 0),
+                        direct_referrals_count: payload.direct_referrals_count ?? (Array.isArray(directList) ? directList.length : 0),
                         total_downlines_count: payload.total_downlines ?? 0,
                     }
                 );
             }
             
-            if (downlinesResponse.success && downlinesResponse.data) {
-                setDownlines(downlinesResponse.data.data || []);
-            }
-            
             if (commissionSummaryResponse.success && commissionSummaryResponse.data) {
-                setCommissionSummary(commissionSummaryResponse.data);
+                // Map backend commission summary to frontend expected format
+                const backendData = commissionSummaryResponse.data;
+                const mappedData = {
+                    total_commission: backendData.total_commission || backendData.total_earned || 0,
+                    monthly_commission: backendData.monthly_commission || 0, // Not available from backend yet
+                    pending_commission: backendData.pending_commission || backendData.pending_amount || 0
+                };
+                setCommissionSummary(mappedData);
             }
             
             if (commissionHistoryResponse.success && commissionHistoryResponse.data) {
-                setCommissionHistoryData(commissionHistoryResponse.data.data || []);
+                // Map commission history data to ensure proper format
+                const historyData = (commissionHistoryResponse.data.data || []).map((item: any) => ({
+                    ...item,
+                    amount: item.commission_cents ? (item.commission_cents / 100).toFixed(2) : item.amount || '0.00',
+                    description: item.description || item.source || 'Commission Payment',
+                    status: item.status || 'pending'
+                }));
+                setCommissionHistoryData(historyData);
             }
         } catch (error) {
             console.error('Failed to load referrer data:', error);
@@ -370,8 +434,11 @@ export default function ProfilePage() {
             if (response.success) {
                 alert('Bank information updated successfully!');
                 setShowBankInfoModal(false);
-                // Update user data
-                if (user) {
+                // Update user data with the response from API
+                if (response.data?.user) {
+                    updateUser(response.data.user);
+                } else if (user) {
+                    // Fallback to manual update if API doesn't return user data
                     updateUser({
                         ...user,
                         bank_name: bankInfoForm.bank_name,
@@ -437,7 +504,7 @@ export default function ProfilePage() {
                 // Reuse paymentHistory list visually by mapping gateway entries into a minimal shape
                 const rows = (res.data?.data || []).map((g: any) => ({
                     description: g.description || 'Medical Insurance Payment',
-                    amount: `RM ${Number(g.amount).toFixed(2)}`,
+                    amount: g.amount_cents ? (g.amount_cents / 100).toFixed(2) : (Number(g.amount) || 0).toFixed(2),
                     status: g.status,
                     date: new Date(g.completed_at || g.created_at).toLocaleString(),
                     method: 'Card',
@@ -483,7 +550,7 @@ export default function ProfilePage() {
                     phone_number: newPhoneNumber.trim(),
                     verification_code: newTacCode.trim()
                 });
-                if (response.success) {
+                if (response.success && response.data) {
                     updateUser(response.data.user);
                     setPhoneChangeStep('success');
                 }
@@ -625,183 +692,421 @@ export default function ProfilePage() {
     // Map API payment history to UI rows (now using gateway payments)
     const paymentHistoryData: PaymentData[] = (gatewayPayments || []).map((g: any) => ({
         description: g.description || 'Medical Insurance Payment',
-        amount: Number(g.amount).toFixed(2),
+        amount: g.amount_cents ? (g.amount_cents / 100).toFixed(2) : (Number(g.amount) || 0).toFixed(2),
         method: 'Card',
         status: g.status,
         date: new Date(g.completed_at || g.created_at).toLocaleString(),
     }));
 
-    const commissionData = [
-        { month: "August 2025", status: "Pending", amount: "1098.96" },
-        { month: "July 2025", status: "Pending", amount: "1110.73" },
-        { month: "July 2025", status: "Pending", amount: "213.52" },
-        { month: "June 2025", status: "Paid", amount: "1452.75" },
-        { month: "May 2025", status: "Paid", amount: "832.48" },
-        { month: "April 2025", status: "Paid", amount: "948.41" },
-        { month: "March 2025", status: "Paid", amount: "707.89" },
-        { month: "February 2025", status: "Paid", amount: "370.08" }
-    ];
+    // Chart configurations
+    const commissionTrendData = {
+        labels: monthlyStats.map(item => item.shortMonth),
+        datasets: [
+            {
+                label: 'Commission Earned (RM)',
+                data: monthlyStats.map(item => item.commission),
+                borderColor: 'rgb(59, 130, 246)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 3,
+                fill: true,
+                tension: 0.4,
+                pointBackgroundColor: 'rgb(59, 130, 246)',
+                pointBorderColor: '#fff',
+                pointBorderWidth: 2,
+                pointRadius: 6,
+                pointHoverRadius: 8,
+            }
+        ]
+    };
+
+    const memberGrowthData = {
+        labels: monthlyStats.map(item => item.shortMonth),
+        datasets: [
+            {
+                label: 'New Members',
+                data: monthlyStats.map(item => item.members),
+                backgroundColor: 'rgba(16, 185, 129, 0.8)',
+                borderColor: 'rgb(16, 185, 129)',
+                borderWidth: 1,
+                borderRadius: 4,
+                borderSkipped: false,
+            }
+        ]
+    };
+
+    const policyDistributionData = {
+        labels: ['Active Policies', 'Pending Policies', 'Expired Policies'],
+        datasets: [
+            {
+                data: [
+                    dashboardStats?.active_members || 0,
+                    Math.floor((dashboardStats?.total_members || 0) * 0.2),
+                    Math.floor((dashboardStats?.total_members || 0) * 0.1)
+                ],
+                backgroundColor: [
+                    'rgba(16, 185, 129, 0.8)',
+                    'rgba(245, 158, 11, 0.8)',
+                    'rgba(239, 68, 68, 0.8)'
+                ],
+                borderColor: [
+                    'rgb(16, 185, 129)',
+                    'rgb(245, 158, 11)',
+                    'rgb(239, 68, 68)'
+                ],
+                borderWidth: 2,
+                hoverOffset: 4
+            }
+        ]
+    };
+
+    const chartOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'top' as const,
+                labels: {
+                    usePointStyle: true,
+                    padding: 20,
+                    font: {
+                        size: 12,
+                        weight: 'bold' as const
+                    }
+                }
+            },
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#fff',
+                bodyColor: '#fff',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                borderWidth: 1,
+                cornerRadius: 8,
+                displayColors: true,
+                callbacks: {
+                    label: function(context: any) {
+                        if (context.dataset.label?.includes('Commission')) {
+                            return `${context.dataset.label}: RM ${context.parsed.y.toFixed(2)}`;
+                        }
+                        return `${context.dataset.label}: ${context.parsed.y}`;
+                    }
+                }
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                grid: {
+                    color: 'rgba(0, 0, 0, 0.05)',
+                    drawBorder: false
+                },
+                ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 11
+                    }
+                }
+            },
+            x: {
+                grid: {
+                    display: false
+                },
+                ticks: {
+                    color: '#6b7280',
+                    font: {
+                        size: 11
+                    }
+                }
+            }
+        }
+    };
+
+    const doughnutOptions = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                position: 'bottom' as const,
+                labels: {
+                    usePointStyle: true,
+                    padding: 20,
+                    font: {
+                        size: 12,
+                        weight: 'bold' as const
+                    }
+                }
+            },
+            tooltip: {
+                backgroundColor: 'rgba(0, 0, 0, 0.8)',
+                titleColor: '#fff',
+                bodyColor: '#fff',
+                borderColor: 'rgba(255, 255, 255, 0.1)',
+                borderWidth: 1,
+                cornerRadius: 8,
+                callbacks: {
+                    label: function(context: any) {
+                        const total = context.dataset.data.reduce((a: number, b: number) => a + b, 0);
+                        const percentage = ((context.parsed / total) * 100).toFixed(1);
+                        return `${context.label}: ${context.parsed} (${percentage}%)`;
+                    }
+                }
+            }
+        },
+        cutout: '60%'
+    };
 
     const renderTabContent = () => {
         switch (activeTab) {
             case 'overview':
                 return (
-                    <div className="space-y-6">
-                        <div className="flex items-center justify-between">
-                            <h2 className="text-2xl font-bold text-gray-800">Account Overview</h2>
+                    <div className="space-y-8">
+                        {/* Header Section */}
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                            <div>
+                                <h2 className="text-3xl font-bold text-gray-900">Dashboard Overview</h2>
+                                <p className="text-gray-600 mt-1">Welcome back, {user?.name}! Here's your performance summary.</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                                <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
+                                    Active Agent
+                                </div>
+                                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
+                                    Level {user?.mlm_level || 0}
+                                </div>
+                            </div>
                         </div>
 
                         {isOverviewLoading ? (
-                            <div className="flex items-center justify-center py-12">
-                                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-                                <span className="ml-2 text-gray-600">Loading overview data...</span>
+                            <div className="flex items-center justify-center py-20">
+                                <div className="text-center">
+                                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+                                    <p className="text-gray-600 text-lg">Loading your dashboard...</p>
+                                </div>
                             </div>
                         ) : (
                             <>
-                                {/* Key Metrics Cards */}
-                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                                    <div className="bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl p-6 text-white">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                <div className="text-sm opacity-90">Agent Code</div>
-                                                <div className="text-2xl font-bold mt-1">{user?.agent_code || 'N/A'}</div>
-                            </div>
-                                            <UserIcon className="w-8 h-8 opacity-80" />
-                            </div>
-                        </div>
+                                {/* Enhanced Key Metrics Cards */}
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.1 }}
+                                        className="bg-gradient-to-br from-blue-500 via-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                                    >
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 bg-white/20 rounded-xl">
+                                                <UserIcon className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-sm opacity-90 font-medium">Agent Code</div>
+                                                <div className="text-2xl font-bold">{user?.agent_code || 'N/A'}</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs opacity-75">Your unique identifier</div>
+                                    </motion.div>
                                     
-                                    <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="text-sm opacity-90">Total Commission</div>
-                                                <div className="text-2xl font-bold mt-1">
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.2 }}
+                                        className="bg-gradient-to-br from-emerald-500 via-emerald-600 to-emerald-700 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                                    >
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 bg-white/20 rounded-xl">
+                                                <DollarSign className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-sm opacity-90 font-medium">Total Commission</div>
+                                                <div className="text-2xl font-bold">
                                                     RM {dashboardStats?.total_commission_earned ? parseFloat(dashboardStats.total_commission_earned).toLocaleString() : '0.00'}
                                                 </div>
                                             </div>
-                                            <DollarSign className="w-8 h-8 opacity-80" />
                                         </div>
-                                    </div>
+                                        <div className="text-xs opacity-75">Lifetime earnings</div>
+                                    </motion.div>
                                     
-                                    <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-xl p-6 text-white">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="text-sm opacity-90">Network Level</div>
-                                                <div className="text-2xl font-bold mt-1">{user?.mlm_level || 0}</div>
-                                            </div>
-                                            <Crown className="w-8 h-8 opacity-80" />
-                                        </div>
-                                    </div>
-                                    
-                                    <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-xl p-6 text-white">
-                                        <div className="flex items-center justify-between">
-                                            <div>
-                                                <div className="text-sm opacity-90">Total Members</div>
-                                                <div className="text-2xl font-bold mt-1">{dashboardStats?.total_members || 0}</div>
-                                            </div>
-                                            <Users className="w-8 h-8 opacity-80" />
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Commission Trend Chart */}
-                                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                                    <div className="flex items-center justify-between mb-4">
-                                        <h3 className="text-lg font-semibold text-gray-800">Commission Trend</h3>
-                                        <BarChart3 className="w-5 h-5 text-gray-500" />
-                                    </div>
-                                    <div className="h-64">
-                                        {commissionHistory.length > 0 ? (
-                                            <Line
-                                                data={{
-                                                    labels: commissionHistory.slice(0, 6).map((item: any) => 
-                                                        new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-                                                    ),
-                                                    datasets: [{
-                                                        label: 'Commission (RM)',
-                                                        data: commissionHistory.slice(0, 6).map((item: any) => parseFloat(item.amount || 0)),
-                                                        borderColor: 'rgb(59, 130, 246)',
-                                                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                                                        tension: 0.4,
-                                                        fill: true
-                                                    }]
-                                                }}
-                                                options={{
-                                                    responsive: true,
-                                                    maintainAspectRatio: false,
-                                                    plugins: {
-                                                        legend: {
-                                                            display: false
-                                                        }
-                                                    },
-                                                    scales: {
-                                                        y: {
-                                                            beginAtZero: true,
-                                                            grid: {
-                                                                color: 'rgba(0, 0, 0, 0.05)'
-                                                            }
-                                                        },
-                                                        x: {
-                                                            grid: {
-                                                                display: false
-                                                            }
-                                                        }
-                                                    }
-                                                }}
-                                            />
-                                        ) : (
-                                            <div className="flex items-center justify-center h-full text-gray-500">
-                                                No commission data available
-                                            </div>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Wallet Balance and Recent Activities */}
-                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                                    {/* Wallet Balance */}
-                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.3 }}
+                                        className="bg-gradient-to-br from-purple-500 via-purple-600 to-purple-700 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                                    >
                                         <div className="flex items-center justify-between mb-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Wallet Balance</h3>
-                                            <Wallet className="w-5 h-5 text-gray-500" />
+                                            <div className="p-3 bg-white/20 rounded-xl">
+                                                <Crown className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-sm opacity-90 font-medium">Network Level</div>
+                                                <div className="text-2xl font-bold">{user?.mlm_level || 0}</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs opacity-75">Your hierarchy level</div>
+                                    </motion.div>
+                                    
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.4 }}
+                                        className="bg-gradient-to-br from-orange-500 via-orange-600 to-orange-700 rounded-2xl p-6 text-white shadow-lg hover:shadow-xl transition-all duration-300"
+                                    >
+                                        <div className="flex items-center justify-between mb-4">
+                                            <div className="p-3 bg-white/20 rounded-xl">
+                                                <Users className="w-6 h-6" />
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-sm opacity-90 font-medium">Total Members</div>
+                                                <div className="text-2xl font-bold">{dashboardStats?.total_members || 0}</div>
+                                            </div>
+                                        </div>
+                                        <div className="text-xs opacity-75">Your network size</div>
+                                    </motion.div>
+                                </div>
+
+                                {/* Charts Section */}
+                                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                                    {/* Commission Trend Chart */}
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.5 }}
+                                        className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+                                    >
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Commission Trend</h3>
+                                                <p className="text-gray-600 text-sm">Your earnings over the last 6 months</p>
+                                            </div>
+                                            <div className="p-2 bg-blue-100 rounded-lg">
+                                                <BarChart3 className="w-5 h-5 text-blue-600" />
+                                            </div>
+                                        </div>
+                                        <div className="h-80">
+                                            <Line data={commissionTrendData} options={chartOptions} />
+                                        </div>
+                                    </motion.div>
+
+                                    {/* Member Growth Chart */}
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.6 }}
+                                        className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+                                    >
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Member Growth</h3>
+                                                <p className="text-gray-600 text-sm">New members joining your network</p>
+                                            </div>
+                                            <div className="p-2 bg-green-100 rounded-lg">
+                                                <Users className="w-5 h-5 text-green-600" />
+                                            </div>
+                                        </div>
+                                        <div className="h-80">
+                                            <Bar data={memberGrowthData} options={chartOptions} />
+                                        </div>
+                                    </motion.div>
+                                </div>
+
+                                {/* Bottom Section */}
+                                <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                                    {/* Policy Distribution */}
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.7 }}
+                                        className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+                                    >
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Policy Distribution</h3>
+                                                <p className="text-gray-600 text-sm">Status breakdown of policies</p>
+                                            </div>
+                                            <div className="p-2 bg-purple-100 rounded-lg">
+                                                <Shield className="w-5 h-5 text-purple-600" />
+                                            </div>
+                                        </div>
+                                        <div className="h-64">
+                                            <Doughnut data={policyDistributionData} options={doughnutOptions} />
+                                        </div>
+                                    </motion.div>
+
+                                    {/* Wallet Balance */}
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.8 }}
+                                        className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+                                    >
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Wallet Balance</h3>
+                                                <p className="text-gray-600 text-sm">Your available funds</p>
+                                            </div>
+                                            <div className="p-2 bg-emerald-100 rounded-lg">
+                                                <Wallet className="w-5 h-5 text-emerald-600" />
+                                            </div>
                                         </div>
                                         <div className="text-center">
-                                            <div className="text-3xl font-bold text-gray-800 mb-2">
+                                            <div className="text-4xl font-bold text-gray-900 mb-2">
                                                 RM {walletData?.balance ? parseFloat(walletData.balance).toLocaleString() : '0.00'}
                                             </div>
-                                            <div className="text-sm text-gray-600 mb-4">Available Balance</div>
-                                            
+                                            <div className="text-gray-600 mb-4">Available Balance</div>
+                                            <div className="flex justify-center">
+                                                <button 
+                                                    onClick={() => router.push('/agent-wallet')}
+                                                    className="px-8 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                                                >
+                                                    Withdraw
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
+                                    </motion.div>
 
                                     {/* Recent Activities */}
-                                    <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm">
-                                        <div className="flex items-center justify-between mb-4">
-                                            <h3 className="text-lg font-semibold text-gray-800">Recent Activities</h3>
-                                            <Activity className="w-5 h-5 text-gray-500" />
+                                    <motion.div 
+                                        initial={{ opacity: 0, y: 20 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        transition={{ delay: 0.9 }}
+                                        className="bg-white rounded-2xl p-6 border border-gray-200 shadow-lg"
+                                    >
+                                        <div className="flex items-center justify-between mb-6">
+                                            <div>
+                                                <h3 className="text-xl font-bold text-gray-900">Recent Activities</h3>
+                                                <p className="text-gray-600 text-sm">Your latest transactions</p>
+                                            </div>
+                                            <div className="p-2 bg-orange-100 rounded-lg">
+                                                <Activity className="w-5 h-5 text-orange-600" />
+                                            </div>
                                         </div>
-                                        <div className="space-y-3">
-                                            {recentActivities.slice(0, 4).map((activity, index) => (
-                                                <div key={index} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
-                                                    <div className="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center">
-                                                        <Activity className="w-4 h-4 text-blue-600" />
+                                        <div className="space-y-4 max-h-64 overflow-y-auto">
+                                            {recentActivities.slice(0, 5).map((activity, index) => (
+                                                <motion.div 
+                                                    key={index}
+                                                    initial={{ opacity: 0, x: -20 }}
+                                                    animate={{ opacity: 1, x: 0 }}
+                                                    transition={{ delay: 0.1 * index }}
+                                                    className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition-colors"
+                                                >
+                                                    <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                                                        <Activity className="w-5 h-5 text-blue-600" />
                                                     </div>
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="text-sm font-medium text-gray-800 truncate">
+                                                        <div className="text-sm font-medium text-gray-900 truncate">
                                                             {activity.description}
                                                         </div>
                                                         <div className="text-xs text-gray-500">
                                                             {new Date(activity.created_at).toLocaleDateString()}
                                                         </div>
                                                     </div>
-                                                </div>
+                                                </motion.div>
                                             ))}
                                             {recentActivities.length === 0 && (
-                                                <div className="text-center text-gray-500 py-4">
-                                                    No recent activities
+                                                <div className="text-center text-gray-500 py-8">
+                                                    <Activity className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                                                    <p>No recent activities</p>
                                                 </div>
                                             )}
                                         </div>
-                                    </div>
+                                    </motion.div>
                                 </div>
                             </>
                         )}
@@ -1260,13 +1565,13 @@ export default function ProfilePage() {
                                                                         <div className="font-medium text-gray-800">{client.phone_number}</div>
                                                                     </div>
                                                                     <div>
-                                                                        <span className="text-gray-500">Card:</span>
-                                                                        <div className="font-medium text-gray-800">{client.medical_card_type}</div>
+                                                                        <span className="text-gray-500">Total Amount:</span>
+                                                                        <div className="font-medium text-gray-800">RM {((client.amount || 0) / 100).toFixed(2)}</div>
                                                                     </div>
                                                                     <div>
                                                                         <span className="text-gray-500">Payment:</span>
-                                                                        <div className="font-medium text-gray-800">
-                                                                            {gatewayPayments.find((p: any) => p.client_id === client.id) ? '✓ Recorded' : 'Pending'}
+                                                                        <div className={`font-medium ${client.status === 'active' ? 'text-green-600' : 'text-orange-600'}`}>
+                                                                            {client.status === 'active' ? '✓ Paid' : 'Pending'}
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1275,6 +1580,15 @@ export default function ProfilePage() {
                                                         
                                                         {/* Compact Action Buttons */}
                                                         <div className="flex gap-1">
+                                                            {client.status === 'pending' && (
+                                                                <button 
+                                                                    onClick={() => handleContinuePayment(client)} 
+                                                                    className="px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                                                                    title="Continue Payment"
+                                                                >
+                                                                    Continue Payment
+                                                                </button>
+                                                            )}
                                                             <button 
                                                                 onClick={() => handleViewClientDetails(client)} 
                                                                 className="p-2 bg-emerald-100 text-emerald-700 rounded-lg hover:bg-emerald-200 transition-colors"
@@ -1489,13 +1803,13 @@ export default function ProfilePage() {
                                             <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
                                                 <div className="text-sm opacity-90">Direct Referral</div>
                                                 <div className="text-3xl font-bold mt-2">
-                                                    {directReferrals.length}
+                                                    {referralData?.direct_referrals_count || 0}
                                         </div>
                                         </div>
                                             <div className="bg-white border border-gray-200 rounded-xl p-6">
                                                 <div className="text-sm text-gray-500">Total Commission</div>
                                                 <div className="text-3xl font-bold mt-2 text-gray-800">
-                                                    RM {user?.total_commission_earned || '0.00'}
+                                                    RM {referralData?.total_commission ? Number(referralData.total_commission).toFixed(2) : '0.00'}
                                         </div>
                                     </div>
                                 </div>
@@ -1551,96 +1865,135 @@ export default function ProfilePage() {
                                     </div>
                                 </div>
 
-                                            {/* Level 1 Referrals */}
+                                            {/* Network Hierarchy */}
                                 <div className="space-y-4">
-                                                <div className="border border-gray-200 rounded-lg p-4">
-                                                    <div className="flex items-center justify-between mb-3">
-                                                        <h4 className="font-medium text-gray-800">Level 2</h4>
-                                                        <div className="flex items-center gap-4 text-sm">
-                                                            <div className="flex items-center gap-1">
-                                                                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'active').length}</span>
-                                                </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
-                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'pending').length}</span>
-                                            </div>
-                                                            <div className="flex items-center gap-1">
-                                                                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
-                                                                <span className="text-gray-600">{directReferrals.filter(r => r.status === 'suspended' || r.status === 'terminated').length}</span>
+                                    {/* Level Breakdown Summary */}
+                                    {referralData?.level_breakdown && (
+                                        <div className="grid grid-cols-2 md:grid-cols-5 gap-2 mb-4">
+                                            {Object.entries(referralData.level_breakdown).map(([level, count]) => {
+                                                const levelNum = parseInt(level.replace('level_', ''));
+                                                // Skip Level 1 (current user) - only show downlines
+                                                if (levelNum === 1) return null;
+                                                
+                                                return (
+                                                    <div key={level} className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                                                        <div className="text-xs text-emerald-600 font-medium">
+                                                            Level {levelNum}
+                                                        </div>
+                                                        <div className="text-lg font-bold text-emerald-800">
+                                                            {String(count)}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
-                                            </div>
-                                        </div>
+                                    )}
 
-                                                    {/* Direct Referrals List */}
-                                                    <div className="space-y-3 max-h-80 overflow-y-auto">
-                                                        {directReferrals
+                                    {/* Display each level - skip Level 1 (current user) */}
+                                    {[2, 3, 4, 5].map(level => {
+                                        const levelMembers = downlines.filter(m => m.mlm_level === level);
+                                        if (levelMembers.length === 0) return null;
+
+                                        return (
+                                            <div key={level} className="border border-gray-200 rounded-lg p-4">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <h4 className="font-medium text-gray-800">Level {level}</h4>
+                                                    <div className="flex items-center gap-4 text-sm">
+                                                        <div className="flex items-center gap-1">
+                                                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                                                            <span className="text-gray-600">{levelMembers.filter(r => r.status === 'active').length}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                                                            <span className="text-gray-600">{levelMembers.filter(r => r.status === 'pending').length}</span>
+                                                        </div>
+                                                        <div className="flex items-center gap-1">
+                                                            <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                                                            <span className="text-gray-600">{levelMembers.filter(r => r.status === 'suspended' || r.status === 'terminated').length}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                {/* Level Members List */}
+                                                <div className="space-y-3 max-h-80 overflow-y-auto">
+                                                    {levelMembers
+                                                        .filter(r => referralStatusFilter === 'all' ? true : r.status === referralStatusFilter)
+                                                        .filter(r => {
+                                                            const q = referralSearch.trim().toLowerCase();
+                                                            if (!q) return true;
+                                                            const name = (r.name || '').toLowerCase();
+                                                            const phone = (r.phone_number || '').toLowerCase();
+                                                            const code = (r.agent_code || '').toLowerCase();
+                                                            const email = (r.email || '').toLowerCase();
+                                                            return name.includes(q) || phone.includes(q) || code.includes(q) || email.includes(q);
+                                                        }).length > 0 ? (
+                                                        levelMembers
                                                             .filter(r => referralStatusFilter === 'all' ? true : r.status === referralStatusFilter)
                                                             .filter(r => {
                                                                 const q = referralSearch.trim().toLowerCase();
                                                                 if (!q) return true;
-                                                                const name = (r.agent?.name || '').toLowerCase();
-                                                                const phone = (r.agent?.phone_number || '').toLowerCase();
-                                                                const code = (r.agent?.agent_code || r.agent_code || '').toLowerCase();
-                                                                return name.includes(q) || phone.includes(q) || code.includes(q);
-                                                            }).length > 0 ? (
-                                                            directReferrals
-                                                                .filter(r => referralStatusFilter === 'all' ? true : r.status === referralStatusFilter)
-                                                                .filter(r => {
-                                                                    const q = referralSearch.trim().toLowerCase();
-                                                                    if (!q) return true;
-                                                                    const name = (r.agent?.name || '').toLowerCase();
-                                                                    const phone = (r.agent?.phone_number || '').toLowerCase();
-                                                                    const code = (r.agent?.agent_code || r.agent_code || '').toLowerCase();
-                                                                    return name.includes(q) || phone.includes(q) || code.includes(q);
-                                                                })
-                                                                .map((referral, index) => (
-                                                                    <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                                                                        <div className="flex items-center gap-3">
-                                                                            <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
-                                                                                <UserIcon className="w-4 h-4 text-emerald-600" />
-                                                                            </div>
-                                                                            <div>
-                                                                                <div className="font-medium text-gray-800">
-                                                                                    {referral.name || referral.agent?.name || 'Unknown'}
-                                                                                </div>
-                                                                                <div className="text-sm text-gray-500">
-                                                                                    {(referral.phone_number || referral.agent?.phone_number || referral.email || '').toString() || 'N/A'}
-                                                                                </div>
-                                                                                <div className="text-xs text-gray-400">
-                                                                                    {new Date(referral.created_at).toLocaleDateString('en-US', {
-                                                                                        year: 'numeric',
-                                                                                        month: '2-digit',
-                                                                                        day: '2-digit',
-                                                                                        hour: '2-digit',
-                                                                                        minute: '2-digit'
-                                                                                    })}
-                                                                                </div>
-                                                                            </div>
+                                                                const name = (r.name || '').toLowerCase();
+                                                                const phone = (r.phone_number || '').toLowerCase();
+                                                                const code = (r.agent_code || '').toLowerCase();
+                                                                const email = (r.email || '').toLowerCase();
+                                                                return name.includes(q) || phone.includes(q) || code.includes(q) || email.includes(q);
+                                                            })
+                                                            .map((member, index) => (
+                                                                <div key={index} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                                                                    <div className="flex items-center gap-3">
+                                                                        <div className="w-8 h-8 bg-emerald-100 rounded-full flex items-center justify-center">
+                                                                            <UserIcon className="w-4 h-4 text-emerald-600" />
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <div className="flex items-center gap-1">
-                                                                                {referral.status === 'active' && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
-                                                                                {referral.status === 'pending' && <div className="w-2 h-2 bg-orange-500 rounded-full"></div>}
-                                                                                {(referral.status === 'suspended' || referral.status === 'terminated') && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
+                                                                        <div>
+                                                                            <div className="font-medium text-gray-800">
+                                                                                {member.name || 'Unknown'}
                                                                             </div>
-                                                                            <button 
-                                                                                onClick={() => handleViewUser(referral)}
-                                                                                className="px-3 py-1 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700"
-                                                                            >
-                                                                                View User
-                                                                            </button>
+                                                                            <div className="text-sm text-gray-500">
+                                                                                {member.phone_number || member.email || 'N/A'}
+                                                                            </div>
+                                                                            <div className="text-xs text-gray-400">
+                                                                                {member.agent_code ? `Code: ${member.agent_code}` : ''}
+                                                                                {member.created_at && ` • ${new Date(member.created_at).toLocaleDateString()}`}
+                                                                            </div>
+                                                                            {member.downline_count && member.downline_count > 0 && (
+                                                                                <div className="text-xs text-emerald-600 font-medium">
+                                                                                    {member.downline_count} downlines
+                                                                                </div>
+                                                                            )}
                                                                         </div>
                                                                     </div>
-                                                                ))
-                                                        ) : (
-                                                            <div className="text-center py-8 text-gray-500">
-                                                                No direct referrals found
-                                                    </div>
-                                                        )}
-                                            </div>
-                                        </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <div className="flex items-center gap-1">
+                                                                            {member.status === 'active' && <div className="w-2 h-2 bg-green-500 rounded-full"></div>}
+                                                                            {member.status === 'pending' && <div className="w-2 h-2 bg-orange-500 rounded-full"></div>}
+                                                                            {(member.status === 'suspended' || member.status === 'terminated') && <div className="w-2 h-2 bg-red-500 rounded-full"></div>}
+                                                                        </div>
+                                                                        <button 
+                                                                            onClick={() => handleViewUser(member)}
+                                                                            className="px-3 py-1 bg-emerald-600 text-white text-sm rounded hover:bg-emerald-700"
+                                                                        >
+                                                                            View User
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            ))
+                                                    ) : (
+                                                        <div className="text-center py-4 text-gray-500">
+                                                            No members found at Level {String(level + 1)}
                                                         </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {/* Show message if no downlines at all */}
+                                    {downlines.length === 0 && (
+                                        <div className="text-center py-8 text-gray-500 border border-gray-200 rounded-lg">
+                                            No network members found. Start building your network by sharing your referral link!
+                                        </div>
+                                    )}
+                                </div>
                                                     </div>
 
                                         {/* My Referral Link */}
@@ -1803,6 +2156,132 @@ export default function ProfilePage() {
         } catch (error) {
             console.error('Error loading client payments:', error);
             setClientPayments([]);
+        }
+    };
+
+    const handleContinuePayment = async (client: any) => {
+        try {
+            // Get the policy for this client
+            const policyResponse = await apiService.getClientPolicies(client.id);
+            if (policyResponse.success && policyResponse.data?.data?.length > 0) {
+                const policy = policyResponse.data.data[0]; // Get the first policy
+                
+                // Debug: Log the policy data to see what we're getting
+                console.log('Policy data:', policy);
+                console.log('Policy amount (cents):', policy.amount);
+                console.log('Policy amount (RM):', (policy.amount || 0) / 100);
+                
+                // Show payment confirmation modal instead of simple confirm
+                setSelectedClient(client);
+                setSelectedPaymentPolicy(policy);
+                setShowPaymentConfirmationModal(true);
+            } else {
+                alert('No policy found for this client. Please contact support.');
+            }
+        } catch (error) {
+            console.error('Error continuing payment:', error);
+            alert('Failed to load payment details. Please try again.');
+        }
+    };
+
+    const handleProcessPayment = async () => {
+        if (!selectedPaymentPolicy || !selectedClient) return;
+        
+        try {
+            console.log('Processing payment for policy:', selectedPaymentPolicy);
+            console.log('Selected client:', selectedClient);
+            
+            // Process continue payment with proper payment gateway and commission distribution
+            const paymentResponse = await apiService.processContinuePayment({
+                policy_id: selectedPaymentPolicy.id,
+                payment_method: 'curlec', // Use Curlec payment gateway
+                return_url: window.location.origin + '/payment/success',
+                cancel_url: window.location.origin + '/payment/cancel'
+            });
+            
+            console.log('Continue payment response:', paymentResponse);
+            
+            if (paymentResponse.success && paymentResponse.data) {
+                const { payment, checkout_data, client, policy, commissions_distributed } = paymentResponse.data;
+                
+                if (checkout_data && checkout_data.order_id) {
+                    // Open Curlec payment gateway
+                    const paymentConfig = await apiService.getMedicalInsurancePaymentConfig();
+                    
+                    if (paymentConfig.success && paymentConfig.data) {
+                        const options = {
+                            key: paymentConfig.data.key_id,
+                            order_id: checkout_data.order_id,
+                            amount: Math.round(checkout_data.amount * 100), // Convert RM to cents for Razorpay
+                            currency: 'MYR',
+                            name: 'KH Holdings Insurance',
+                            description: 'Medical Insurance Payment',
+                            image: '/logo.png',
+                            prefill: {
+                                name: client?.name || '',
+                                email: client?.email || '',
+                                contact: client?.phone_number || ''
+                            },
+                            notes: {
+                                payment_id: payment.id,
+                                policy_id: selectedPaymentPolicy.id
+                            },
+                            theme: { color: '#10b981' },
+                            handler: async function (razorpayResponse: any) {
+                                try {
+                                    // Verify payment with backend
+                                    const verifyResponse = await apiService.verifyContinuePayment({
+                                        payment_id: payment.id,
+                                        status: 'success',
+                                        external_ref: razorpayResponse.razorpay_payment_id
+                                    });
+
+                                    if (verifyResponse.success) {
+                                        alert('Payment processed successfully! Policy has been activated and commissions distributed.');
+                                        // Close modal and refresh clients list
+                                        setShowPaymentConfirmationModal(false);
+                                        setSelectedPaymentPolicy(null);
+                                        loadClients();
+                                    } else {
+                                        alert(`Payment verification failed: ${verifyResponse.message || 'Unknown error'}`);
+                                    }
+                                } catch (err) {
+                                    console.error('Payment verification error:', err);
+                                    alert(`Payment verification failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                                }
+                            },
+                            modal: {
+                                ondismiss: function() {
+                                    console.log('Payment modal dismissed');
+                                }
+                            }
+                        };
+
+                        if ((window as any).Razorpay && options.order_id) {
+                            const razorpay = new (window as any).Razorpay(options);
+                            razorpay.open();
+                        } else {
+                            alert('Payment gateway not available. Please try again later.');
+                        }
+                    } else {
+                        alert('Payment configuration not available. Please try again later.');
+                    }
+                } else if (commissions_distributed) {
+                    // Manual payment was processed directly
+                    alert('Payment processed successfully! Policy has been activated and commissions distributed.');
+                    // Close modal and refresh clients list
+                    setShowPaymentConfirmationModal(false);
+                    setSelectedPaymentPolicy(null);
+                    loadClients();
+                } else {
+                    alert('Payment processed but no checkout data received. Please contact support.');
+                }
+            } else {
+                alert(`Failed to process payment: ${paymentResponse.message || 'Unknown error'}`);
+            }
+        } catch (error) {
+            console.error('Error processing payment:', error);
+            alert(`Failed to process payment: ${error instanceof Error ? error.message : 'Unknown error'}`);
         }
     };
 
@@ -2557,6 +3036,68 @@ export default function ProfilePage() {
                 )}
             </Modal>
 
+            {/* Payment Confirmation Modal */}
+            <Modal open={showPaymentConfirmationModal} onClose={() => setShowPaymentConfirmationModal(false)} title="Payment Confirmation" maxWidth="max-w-md">
+                {selectedClient && selectedPaymentPolicy && (
+                    <div className="space-y-6">
+                        <div className="text-center">
+                            <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                                <CreditCard className="w-8 h-8 text-green-600" />
+                            </div>
+                            <h3 className="text-lg font-semibold text-gray-900 mb-2">Complete Your Payment</h3>
+                            <p className="text-gray-600">Review your order details and proceed to payment</p>
+                        </div>
+                        
+                        <div className="bg-gray-50 rounded-lg p-4">
+                            <h4 className="font-semibold text-gray-800 mb-3">Payment Summary</h4>
+                            <div className="space-y-2">
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Client:</span>
+                                    <span className="font-medium">{selectedClient.full_name || selectedClient.name}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Plan:</span>
+                                    <span className="font-medium">{selectedClient.plan_name || 'Medical Card'}</span>
+                                </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">NRIC:</span>
+                                    <span className="font-medium">{selectedClient.nric}</span>
+                                </div>
+                                <div className="flex justify-between text-lg font-semibold text-green-600">
+                                    <span>Total Amount:</span>
+                                    <span>RM {((selectedPaymentPolicy.amount || 0) / 100).toFixed(2)}</span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="bg-blue-50 rounded-lg p-4">
+                            <div className="flex items-center">
+                                <Shield className="w-5 h-5 text-blue-600 mr-2" />
+                                <div className="text-sm text-blue-800">
+                                    <strong>Secure Payment</strong> - This will activate the policy immediately
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setShowPaymentConfirmationModal(false)}
+                                className="flex-1 py-2 px-4 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleProcessPayment}
+                                className="flex-1 py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center"
+                            >
+                                <CreditCard className="w-4 h-4 mr-2" />
+                                Pay RM {((selectedPaymentPolicy.amount || 0) / 100).toFixed(2)}
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
             {/* View User Modal */}
             <Modal open={showViewUserModal} onClose={() => setShowViewUserModal(false)} title="User Details" maxWidth="max-w-5xl">
                 {selectedUser && (
@@ -2633,8 +3174,8 @@ export default function ProfilePage() {
                                             {selectedUserDownlines.map((d: any, idx: number) => (
                                                 <div key={idx} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                                                     <div>
-                                                        <div className="font-medium text-gray-800">{d.agent?.name || '-'}</div>
-                                                        <div className="text-xs text-gray-500">{d.agent?.agent_code || d.agent_code || '-'}</div>
+                                                        <div className="font-medium text-gray-800">{d.name || d.agent?.name || '-'}</div>
+                                                        <div className="text-xs text-gray-500">{d.agent_code || d.agent?.agent_code || '-'}</div>
                                                     </div>
                                                     <div className="text-xs px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 capitalize">{d.status || '-'}</div>
                                                 </div>

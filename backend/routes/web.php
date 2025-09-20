@@ -44,6 +44,7 @@ Route::prefix('admin')->name('admin.')->middleware('admin')->group(function () {
     // Users management
     Route::resource('users', AdminUserController::class);
     Route::get('users/{user}/network', [AdminUserController::class, 'network'])->name('users.network');
+    Route::get('users/{user}/medical', [AdminUserController::class, 'medical'])->name('users.medical');
     
     // Commission management
     Route::get('commissions', [AdminCommissionController::class, 'index'])->name('commissions.index');

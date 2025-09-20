@@ -16,7 +16,18 @@ class PaymentController extends Controller
 {
     public function index()
     {
-        $payments = PaymentTransaction::where('user_id', auth('api')->id())->latest()->paginate(15);
+        $user = auth('api')->user();
+        
+        // If user is an agent, show payments from their clients
+        if ($user->agent_code) {
+            $payments = PaymentTransaction::whereHas('user', function($query) use ($user) {
+                $query->where('referrer_code', $user->agent_code);
+            })->with(['user', 'plan'])->latest()->paginate(15);
+        } else {
+            // Regular user sees their own payments
+            $payments = PaymentTransaction::where('user_id', $user->id)->with(['user', 'plan'])->latest()->paginate(15);
+        }
+        
         return response()->json(['status' => 'success', 'data' => $payments]);
     }
 

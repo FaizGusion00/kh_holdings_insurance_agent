@@ -357,6 +357,18 @@ class LaravelApiService {
     return this.makeRequest('/wallet/withdrawals');
   }
 
+  async getMedicalClients(page?: number): Promise<ApiResponse<any>> {
+    const params = new URLSearchParams();
+    if (page) params.append('page', page.toString());
+    
+    return this.makeRequest(`/mlm/clients?${params.toString()}`);
+  }
+
+  async getCommissionSummary(): Promise<ApiResponse<any>> {
+    return this.makeRequest('/mlm/commission-summary');
+  }
+
+
   // =====================
   // MLM NETWORK APIs
   // =====================
@@ -382,10 +394,6 @@ class LaravelApiService {
   async getDownlines(level?: number): Promise<ApiResponse<any>> {
     const params = level ? `?level=${level}` : '';
     return this.makeRequest(`/mlm/downlines${params}`);
-  }
-
-  async getCommissionSummary(): Promise<ApiResponse<any>> {
-    return this.makeRequest('/mlm/commission-summary');
   }
 
   async registerClient(clientData: any): Promise<ApiResponse<{ client: User }>> {

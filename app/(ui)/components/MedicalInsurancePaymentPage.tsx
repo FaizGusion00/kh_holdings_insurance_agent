@@ -12,14 +12,15 @@ interface MedicalInsurancePlan {
   description: string;
   pricing: {
     monthly: { base_price: string };
-    quarterly: { base_price: string };
-    semi_annually: { base_price: string };
+    quarterly: { base_price: string | null };
+    semi_annually: { base_price: string | null };
     annually: { base_price: string };
   };
   commitment_fee: string;
   coverage_details: any;
   max_age: number | null;
   min_age: number;
+  available_modes: string[];
 }
 
 interface PaymentPageProps {
@@ -29,6 +30,7 @@ interface PaymentPageProps {
   onSuccess: (payment: any) => void;
   initialTotalAmount?: number | null;
   initialBreakdown?: Array<{ customer_type?: string; plan_type?: string; payment_mode?: string; line_total?: number }>;
+  initialPolicies?: Array<{ id: number; [key: string]: any }>;
   externalMode?: boolean;
 }
 
@@ -39,6 +41,7 @@ export default function MedicalInsurancePaymentPage({
   onSuccess,
   initialTotalAmount = null,
   initialBreakdown = [],
+  initialPolicies = [],
   externalMode = false
 }: PaymentPageProps) {
   const [plans, setPlans] = useState<MedicalInsurancePlan[]>([]);
@@ -49,6 +52,7 @@ export default function MedicalInsurancePaymentPage({
   const [registrationDetails, setRegistrationDetails] = useState<any>(null);
   const [totalAmount, setTotalAmount] = useState<number | null>(initialTotalAmount);
   const [amountBreakdown, setAmountBreakdown] = useState<any[]>(initialBreakdown);
+  const [policies, setPolicies] = useState<any[]>(initialPolicies);
 
   useEffect(() => {
     if (isOpen) {
@@ -56,7 +60,7 @@ export default function MedicalInsurancePaymentPage({
       loadPaymentConfig();
       if (initialTotalAmount !== null) setTotalAmount(initialTotalAmount);
       if (initialBreakdown && initialBreakdown.length > 0) setAmountBreakdown(initialBreakdown);
-      loadRegistrationDetails();
+      if (initialPolicies && initialPolicies.length > 0) setPolicies(initialPolicies);
     }
   }, [isOpen]);
 
@@ -82,34 +86,6 @@ export default function MedicalInsurancePaymentPage({
     }
   };
 
-  const loadRegistrationDetails = async () => {
-    if (!registrationId) return;
-    
-    try {
-      const response = await apiService.getMedicalInsuranceRegistrationStatus(registrationId);
-      if (response.success && response.data) {
-        setRegistrationDetails(response.data);
-        
-        // Pre-calculate total amount
-        const preCalcResponse = externalMode 
-          ? await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
-              registration_id: registrationId,
-              calculate_only: true
-            })
-          : await apiService.createMedicalInsurancePaymentOrderForAllCustomers({
-              registration_id: registrationId,
-              calculate_only: true
-            });
-        
-        if (preCalcResponse.success && preCalcResponse.data?.total_amount !== undefined) {
-          setTotalAmount(preCalcResponse.data.total_amount);
-          setAmountBreakdown(preCalcResponse.data.breakdown || []);
-        }
-      }
-    } catch (err) {
-      console.error("Failed to load registration details", err);
-    }
-  };
 
   const handleProceedToPayment = async () => {
     setLoading(true);
@@ -119,14 +95,14 @@ export default function MedicalInsurancePaymentPage({
       const response = externalMode 
         ? await apiService.createMedicalInsurancePaymentExternal({
             registration_id: registrationId,
-            policy_ids: registrationDetails?.policies?.map((p: any) => p.id) || [],
+            policy_ids: policies.map((p: any) => p.id),
             payment_method: 'curlec',
             return_url: window.location.origin + '/payment/success',
             cancel_url: window.location.origin + '/payment/cancel'
           })
         : await apiService.createMedicalInsurancePayment({
             registration_id: registrationId,
-            policy_ids: registrationDetails?.policies?.map((p: any) => p.id) || [],
+            policy_ids: policies.map((p: any) => p.id),
             payment_method: 'curlec',
             return_url: window.location.origin + '/payment/success',
             cancel_url: window.location.origin + '/payment/cancel'
@@ -135,17 +111,22 @@ export default function MedicalInsurancePaymentPage({
       if (response.success && response.data) {
         const paymentData = response.data;
         
-        // Initialize Curlec/Payment checkout
+        // Initialize Curlec Subscription checkout
         const options = {
           key: paymentConfig?.key_id,
-          amount: paymentData.checkout_data?.amount ? Math.round(paymentData.checkout_data.amount * 100) : (totalAmount ? Math.round(totalAmount * 100) : undefined),
-          currency: paymentData.checkout_data?.currency ?? 'MYR',
+          subscription_id: paymentData.checkout_data?.subscription_id,
           name: 'KH Holdings Insurance',
-          description: 'Medical Insurance Payment',
-          order_id: paymentData.checkout_data?.order_id,
+          description: 'Medical Insurance Subscription',
+          image: '/logo.png',
           prefill: {
-            name: registrationDetails?.clients?.[0]?.name || '',
-            email: registrationDetails?.clients?.[0]?.email || ''
+            name: policies?.[0]?.user?.name || '',
+            email: policies?.[0]?.user?.email || '',
+            contact: policies?.[0]?.user?.phone_number || ''
+          },
+          notes: {
+            payment_id: paymentData.payment.id,
+            plan_id: paymentData.checkout_data?.plan_id,
+            registration_id: registrationId
           },
           theme: { color: '#10b981' },
           handler: async function (razorpayResponse: any) {
@@ -154,17 +135,17 @@ export default function MedicalInsurancePaymentPage({
                 ? await apiService.verifyMedicalInsurancePaymentExternal({
                     payment_id: paymentData.payment.id,
                     status: 'success',
-                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_order_id
+                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_subscription_id
                   })
                 : await apiService.verifyMedicalInsurancePayment({
                     payment_id: paymentData.payment.id,
                     status: 'success',
-                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_order_id
+                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_subscription_id
                   });
 
               if (verifyResponse.success) {
                 onSuccess(verifyResponse.data);
-                alert('Payment successful and verified. Thank you!');
+                alert('Subscription created successfully! Thank you!');
                 onClose();
               } else {
                 setError(verifyResponse.message || "Payment verification failed");
@@ -180,7 +161,7 @@ export default function MedicalInsurancePaymentPage({
           }
         };
 
-        if ((window as any).Razorpay && options.amount) {
+        if ((window as any).Razorpay && options.subscription_id) {
           const razorpay = new (window as any).Razorpay(options);
           razorpay.open();
         } else {
@@ -214,23 +195,32 @@ export default function MedicalInsurancePaymentPage({
           if (!plan) return null;
 
           const getPlanPrice = (frequency: string) => {
+            const parsePrice = (price: string | null) => {
+              if (!price) return 0;
+              // Remove commas and parse as float
+              const cleanValue = String(price).replace(/,/g, '');
+              return parseFloat(cleanValue) || 0;
+            };
+
             switch (frequency) {
               case 'monthly':
-                return parseFloat(plan.pricing.monthly.base_price) || 0;
+                return parsePrice(plan.pricing.monthly.base_price);
               case 'quarterly':
-                return parseFloat(plan.pricing.quarterly.base_price) || 0;
+                return parsePrice(plan.pricing.quarterly?.base_price);
               case 'semi_annually':
-                return parseFloat(plan.pricing.semi_annually.base_price) || 0;
+                return parsePrice(plan.pricing.semi_annually?.base_price);
               case 'annually':
-                return parseFloat(plan.pricing.annually.base_price) || 0;
+                return parsePrice(plan.pricing.annually.base_price);
               default:
-                return parseFloat(plan.pricing.monthly.base_price) || 0;
+                return parsePrice(plan.pricing.monthly.base_price);
             }
           };
 
           const getCommitmentFee = (frequency: string) => {
             if (frequency !== 'monthly') return 0;
-            return parseFloat(plan.commitment_fee) || 0;
+            // Remove commas and parse as float
+            const cleanValue = String(plan.commitment_fee || '0').replace(/,/g, '');
+            return parseFloat(cleanValue) || 0;
           };
 
           const getNfcCardPrice = (cardType: string) => {
