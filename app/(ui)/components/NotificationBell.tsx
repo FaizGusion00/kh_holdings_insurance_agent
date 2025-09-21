@@ -21,13 +21,17 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
   const fetchNotifications = async () => {
     try {
       setIsLoading(true);
+      console.log("🔔 Fetching notifications...");
       const response = await apiService.getNotifications(50, false); // Fetch all notifications, not just unread
+      console.log("🔔 Notifications response:", response);
       if (response.success && response.data) {
+        console.log("🔔 Setting notifications:", response.data.data);
+        console.log("🔔 Unread count:", response.data.unread_count);
         setNotifications(response.data.data || []);
         setUnreadCount(response.data.unread_count || 0);
       }
     } catch (error) {
-      console.error("Failed to fetch notifications:", error);
+      console.error("🔔 Failed to fetch notifications:", error);
     } finally {
       setIsLoading(false);
     }
@@ -36,12 +40,15 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
   // Fetch unread count only
   const fetchUnreadCount = async () => {
     try {
+      console.log("🔔 Fetching unread count...");
       const response = await apiService.getUnreadNotificationCount();
+      console.log("🔔 Unread count response:", response);
       if (response.success && response.data) {
+        console.log("🔔 Setting unread count to:", response.data.unread_count);
         setUnreadCount(response.data.unread_count);
       }
     } catch (error) {
-      console.error("Failed to fetch unread count:", error);
+      console.error("🔔 Failed to fetch unread count:", error);
     }
   };
 
