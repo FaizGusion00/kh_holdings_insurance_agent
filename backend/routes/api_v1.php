@@ -65,6 +65,8 @@ Route::prefix('api/v1')->group(function () {
         Route::post('/medical-registration/register', [\App\Http\Controllers\MedicalRegistrationController::class, 'register']);
         Route::post('/medical-registration/payment', [\App\Http\Controllers\MedicalRegistrationController::class, 'createPayment']);
         Route::post('/medical-registration/verify', [\App\Http\Controllers\MedicalRegistrationController::class, 'verifyPayment']);
+        Route::post('/medical-registration/complete', [\App\Http\Controllers\MedicalRegistrationController::class, 'completeRegistration']);
+        Route::get('/medical-registration/pending', [\App\Http\Controllers\MedicalRegistrationController::class, 'getPendingRegistrations']);
         Route::get('/medical-registration/receipt/{payment_id}', [\App\Http\Controllers\MedicalRegistrationController::class, 'getReceipt']);
     });
 
@@ -81,6 +83,7 @@ Route::prefix('api/v1')->group(function () {
     Route::post('/medical-registration/external/register', [\App\Http\Controllers\MedicalRegistrationController::class, 'register']);
     Route::post('/medical-registration/external/payment', [\App\Http\Controllers\MedicalRegistrationController::class, 'createPayment']);
     Route::post('/medical-registration/external/verify', [\App\Http\Controllers\MedicalRegistrationController::class, 'verifyPayment']);
+    Route::post('/medical-registration/external/complete', [\App\Http\Controllers\MedicalRegistrationController::class, 'completeRegistration']);
     Route::get('/medical-registration/external/receipt/{payment_id}', [\App\Http\Controllers\MedicalRegistrationController::class, 'getReceipt']);
 });
 

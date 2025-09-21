@@ -33,21 +33,24 @@ class CurlecPaymentService
         ];
 
         // Calculate the correct amount based on interval
-        $annualAmount = $plan->price_cents / 100; // Convert to RM
-        $monthlyAmount = $annualAmount / 12;
+        $annualAmountCents = $plan->price_cents; // Already in cents
+        $monthlyAmountCents = $annualAmountCents / 12;
         
-        $amount = match($interval) {
-            'quarterly' => $monthlyAmount * 3,
-            'semi_annually' => $monthlyAmount * 6,
-            'annually' => $annualAmount,
-            default => $monthlyAmount // monthly
+        $amountCents = match($interval) {
+            'quarterly' => $monthlyAmountCents * 3,
+            'semi_annually' => $monthlyAmountCents * 6,
+            'annually' => $annualAmountCents,
+            default => $monthlyAmountCents // monthly
         };
+        
+        // Razorpay expects amount in cents for MYR currency
+        $amount = $amountCents;
 
         $payload = [
             'item' => [
                 'name' => $plan->name ?? 'Medical Insurance Plan',
                 'description' => $plan->description ?? 'Medical Insurance Plan',
-                'amount' => $amount, // Use calculated amount based on interval
+                'amount' => $amount, // Amount in cents for Razorpay
                 'currency' => 'MYR'
             ],
             'period' => $intervalMap[$interval] ?? 'monthly',

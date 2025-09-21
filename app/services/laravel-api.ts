@@ -20,7 +20,6 @@ interface User {
   nric: string;
   agent_code?: string;
   referrer_code?: string;
-  customer_type: 'client' | 'agent';
   status: 'active' | 'inactive' | 'suspended' | 'pending_verification';
   mlm_level: number;
   wallet_balance: number;

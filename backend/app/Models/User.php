@@ -56,7 +56,6 @@ class User extends Authenticatable implements JWTSubject
         'plan_name',
         'payment_mode',
         'medical_card_type',
-        'customer_type',
         'current_insurance_plan_id',
         'policy_start_date',
         'policy_end_date',

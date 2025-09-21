@@ -24,7 +24,6 @@ export interface User {
   email: string;
   phone_number: string;
   nric: string;
-  customer_type: 'client' | 'agent';
   status: 'active' | 'inactive' | 'suspended' | 'pending_verification';
   mlm_level: number;
   wallet_balance: number;
@@ -918,6 +917,19 @@ class ApiServiceBridge {
     }
   }
 
+  async getPendingRegistrations(): Promise<ApiResponse<any>> {
+    try {
+      const response = await laravelApi.get('/medical-registration/pending');
+      return this.convertResponse(response);
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get pending registrations'
+      };
+    }
+  }
+
   // Additional MLM methods for profile page
   async getReferrals(): Promise<ApiResponse<any>> {
     try {
@@ -1323,7 +1335,6 @@ class ApiServiceBridge {
       email: laravelUser.email,
       phone_number: laravelUser.phone_number || '',
       nric: laravelUser.nric || '',
-      customer_type: laravelUser.customer_type || 'client',
       status: laravelUser.status || 'active',
       mlm_level: laravelUser.mlm_level || 1,
       wallet_balance: parseFloat(laravelUser.wallet_balance) || 0,

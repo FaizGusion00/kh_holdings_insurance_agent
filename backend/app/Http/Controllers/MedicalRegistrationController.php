@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\InsurancePlan;
 use App\Models\MemberPolicy;
 use App\Models\PaymentTransaction;
+use App\Models\PendingRegistration;
 use App\Models\User;
 use App\Services\CommissionService;
 use App\Services\CurlecPaymentService;
@@ -21,12 +22,119 @@ class MedicalRegistrationController extends Controller
             'clients' => 'required|array|min:1|max:10',
             'clients.*.plan_type' => 'required|string',
             'clients.*.full_name' => 'required|string|max:255',
-            'clients.*.nric' => 'required|string|max:20|unique:users,nric',
+            'clients.*.nric' => 'required|string|max:20',
             'clients.*.race' => 'required|string',
             'clients.*.height_cm' => 'required|numeric|min:50|max:300',
             'clients.*.weight_kg' => 'required|numeric|min:10|max:500',
             'clients.*.phone_number' => 'required|string|max:20',
-            'clients.*.email' => 'required|email|unique:users,email',
+            'clients.*.email' => 'required|email',
+            'clients.*.password' => 'required|string|min:6',
+            'clients.*.medical_consultation_2_years' => 'required|boolean',
+            'clients.*.serious_illness_history' => 'required|boolean',
+            'clients.*.insurance_rejection_history' => 'required|boolean',
+            'clients.*.serious_injury_history' => 'required|boolean',
+            'clients.*.emergency_contact_name' => 'required|string|max:255',
+            'clients.*.emergency_contact_phone' => 'required|string|max:20',
+            'clients.*.emergency_contact_relationship' => 'required|string|max:100',
+            'clients.*.payment_mode' => 'required|in:monthly,quarterly,semi_annually,annually',
+            'clients.*.medical_card_type' => 'required|string',
+            'plan_id' => 'required|integer|exists:insurance_plans,id',
+            'payment_mode' => 'required|in:monthly,quarterly,semi_annually,annually',
+            'agent_code' => 'nullable|string|exists:users,agent_code', // For external registration
+        ]);
+
+        $agent = auth('api')->user();
+        
+        // For external registration, find agent by agent_code
+        if (!$agent && isset($validated['agent_code']) && $validated['agent_code']) {
+            $agent = User::where('agent_code', $validated['agent_code'])->first();
+            if (!$agent) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid agent code provided'
+                ], 422);
+            }
+        }
+        
+        if (!$agent) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Authentication required or valid agent code must be provided'
+            ], 401);
+        }
+        $plan = InsurancePlan::find($validated['plan_id']);
+        if (!$plan) {
+            return response()->json(['status' => 'error', 'message' => 'Invalid plan ID'], 404);
+        }
+
+        try {
+            // Calculate total amount and breakdown
+            $totalAmountCents = 0;
+            $breakdown = [];
+
+            foreach ($validated['clients'] as $clientData) {
+                $planAmountCents = $this->calculatePlanAmount($plan, $clientData['payment_mode']);
+                $nfcCardFeeCents = $this->calculateNfcCardFee($clientData['medical_card_type']);
+                $clientTotalCents = $planAmountCents + $nfcCardFeeCents;
+                
+                $totalAmountCents += $clientTotalCents;
+
+                $breakdown[] = [
+                    'client_name' => $clientData['full_name'],
+                    'plan_name' => $plan->name,
+                    'payment_mode' => $clientData['payment_mode'],
+                    'amount_cents' => $planAmountCents,
+                    'nfc_card_fee_cents' => $nfcCardFeeCents,
+                    'line_total' => $clientTotalCents / 100,
+                ];
+            }
+
+            // Create pending registration
+            $registrationId = 'REG' . time() . rand(1000, 9999);
+            $pendingRegistration = PendingRegistration::create([
+                'registration_id' => $registrationId,
+                'agent_id' => $agent->id,
+                'plan_id' => $plan->id,
+                'clients_data' => $validated['clients'],
+                'amount_breakdown' => $breakdown,
+                'total_amount_cents' => $totalAmountCents,
+                'currency' => 'MYR',
+                'status' => 'pending',
+                'expires_at' => now()->addHours(24), // Expire in 24 hours
+            ]);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Registration data prepared successfully',
+                'data' => [
+                    'registration_id' => $registrationId,
+                    'total_amount' => $totalAmountCents / 100,
+                    'amount_breakdown' => $breakdown,
+                    'expires_at' => $pendingRegistration->expires_at->toISOString(),
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Registration preparation failed: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration preparation failed: ' . $e->getMessage()
+            ], 422);
+        }
+    }
+
+    public function registerOld(Request $request)
+    {
+        $validated = $request->validate([
+            'clients' => 'required|array|min:1|max:10',
+            'clients.*.plan_type' => 'required|string',
+            'clients.*.full_name' => 'required|string|max:255',
+            'clients.*.nric' => 'required|string|max:20',
+            'clients.*.race' => 'required|string',
+            'clients.*.height_cm' => 'required|numeric|min:50|max:300',
+            'clients.*.weight_kg' => 'required|numeric|min:10|max:500',
+            'clients.*.phone_number' => 'required|string|max:20',
+            'clients.*.email' => 'required|email',
             'clients.*.password' => 'required|string|min:6',
             'clients.*.medical_consultation_2_years' => 'required|boolean',
             'clients.*.serious_illness_history' => 'required|boolean',
@@ -93,7 +201,6 @@ class MedicalRegistrationController extends Controller
                         'emergency_contact_relationship' => $clientData['emergency_contact_relationship'],
                         'password' => Hash::make($clientData['password']), // Use password from request
                         'referrer_code' => $agent->agent_code,
-                        'customer_type' => 'client',
                         'medical_card_type' => $clientData['medical_card_type'], // Add medical card type
                         'payment_mode' => $clientData['payment_mode'], // Add payment mode
                         'current_payment_mode' => $clientData['payment_mode'], // Add current payment mode
@@ -154,14 +261,20 @@ class MedicalRegistrationController extends Controller
 
                     // Calculate amount based on payment mode
                     $planAmountCents = $this->calculatePlanAmount($plan, $clientData['payment_mode']);
-                    $totalAmountCents += $planAmountCents;
+                    
+                    // Add NFC card fee if physical card is selected
+                    $nfcCardFeeCents = $this->calculateNfcCardFee($clientData['medical_card_type']);
+                    $clientTotalCents = $planAmountCents + $nfcCardFeeCents;
+                    
+                    $totalAmountCents += $clientTotalCents;
 
                     $breakdown[] = [
                         'client_name' => $client->name,
                         'plan_name' => $plan->name,
                         'payment_mode' => $clientData['payment_mode'],
                         'amount_cents' => $planAmountCents,
-                        'line_total' => $planAmountCents / 100,
+                        'nfc_card_fee_cents' => $nfcCardFeeCents,
+                        'line_total' => $clientTotalCents / 100,
                     ];
                 }
             });
@@ -189,91 +302,66 @@ class MedicalRegistrationController extends Controller
     public function createPayment(Request $request, CurlecPaymentService $curlecService)
     {
         $validated = $request->validate([
-            'registration_id' => 'required|string',
-            'policy_ids' => 'required|array|min:1',
+            'registration_id' => 'required|string|exists:pending_registrations,registration_id',
             'payment_method' => 'required|string',
             'return_url' => 'nullable|string',
             'cancel_url' => 'nullable|string',
         ]);
 
         try {
-            Log::info('Creating payment for policy IDs: ' . json_encode($validated['policy_ids']));
+            Log::info('Creating payment for registration ID: ' . $validated['registration_id']);
             
-            $policies = MemberPolicy::with(['plan', 'user'])->whereIn('id', $validated['policy_ids'])->get();
-            Log::info('Found policies: ' . $policies->count());
-            
-            $totalAmountCents = 0;
-            $planIds = [];
-
-            foreach ($policies as $policy) {
-                $plan = $policy->plan;
-                $user = $policy->user;
-                $planAmount = $this->calculatePlanAmount($plan, $user->current_payment_mode ?? 'monthly');
-                $totalAmountCents += $planAmount;
-                $planIds[] = $plan->id;
+            $pendingRegistration = PendingRegistration::where('registration_id', $validated['registration_id'])->first();
+            if (!$pendingRegistration) {
+                return response()->json(['status' => 'error', 'message' => 'Registration not found'], 404);
             }
 
-            // For external registrations, use the first policy's user as the payment user
+            if ($pendingRegistration->isExpired()) {
+                return response()->json(['status' => 'error', 'message' => 'Registration has expired'], 400);
+            }
+
+            if ($pendingRegistration->status !== 'pending') {
+                return response()->json(['status' => 'error', 'message' => 'Registration already processed'], 400);
+            }
+
+            $totalAmountCents = $pendingRegistration->total_amount_cents;
+            $plan = $pendingRegistration->plan;
+
+            // For external registrations, use the agent as the payment user
             $paymentUserId = auth('api')->id();
-            if (!$paymentUserId && $policies->count() > 0) {
-                $paymentUserId = $policies->first()->user_id;
+            if (!$paymentUserId) {
+                $paymentUserId = $pendingRegistration->agent_id;
             }
 
             // Create a consolidated payment transaction
             $payment = PaymentTransaction::create([
                 'user_id' => $paymentUserId,
-                'plan_id' => $planIds[0], // Use first plan as reference
+                'plan_id' => $plan->id,
                 'gateway' => 'curlec',
                 'amount_cents' => $totalAmountCents,
                 'currency' => 'MYR',
                 'status' => 'pending',
                 'meta' => [
                     'registration_id' => $validated['registration_id'],
-                    'policy_ids' => $validated['policy_ids'],
-                    'plan_ids' => $planIds,
+                    'pending_registration_id' => $pendingRegistration->id,
                 ],
             ]);
 
-            // Create Curlec subscription
+            // Create Curlec one-time payment (same as continue payment)
             try {
-                // Check if policies exist
-                if ($policies->isEmpty()) {
-                    throw new \Exception('No policies found for the given policy IDs');
-                }
+                // Create one-time order instead of subscription
+                Log::info('Creating one-time order for payment ID: ' . $payment->id . ', amount: ' . $totalAmountCents);
+                $order = $curlecService->createOrder($payment);
+                Log::info('Order created: ' . json_encode($order));
                 
-                // Get the first plan for subscription creation
-                $firstPolicy = $policies->first();
-                $firstPlan = $firstPolicy->plan;
-                
-                if (!$firstPlan) {
-                    throw new \Exception('Plan not found for policy ID: ' . $firstPolicy->id);
-                }
-                
-                $paymentMode = $firstPolicy->user->current_payment_mode ?? 'monthly';
-                
-                // Create subscription plan
-                Log::info('Creating subscription plan for plan ID: ' . $firstPlan->id . ', mode: ' . $paymentMode);
-                $subscriptionPlan = $curlecService->createSubscriptionPlan($firstPlan, $paymentMode);
-                Log::info('Subscription plan created: ' . json_encode($subscriptionPlan));
-                
-                if (!isset($subscriptionPlan['id'])) {
-                    throw new \Exception('Failed to create subscription plan: ' . json_encode($subscriptionPlan));
-                }
-                
-                // Create subscription
-                Log::info('Creating subscription for payment ID: ' . $payment->id . ', plan ID: ' . $subscriptionPlan['id']);
-                $subscription = $curlecService->createSubscription($payment, $subscriptionPlan['id']);
-                Log::info('Subscription created: ' . json_encode($subscription));
-                
-                if (!isset($subscription['id'])) {
-                    throw new \Exception('Failed to create subscription: ' . json_encode($subscription));
+                if (!isset($order['order_id'])) {
+                    throw new \Exception('Failed to create order: ' . json_encode($order));
                 }
                 
                 $payment->update([
-                    'external_ref' => $subscription['id'],
+                    'external_ref' => $order['order_id'],
                     'meta' => array_merge($payment->meta, [
-                        'curlec_subscription' => $subscription,
-                        'curlec_plan' => $subscriptionPlan
+                        'curlec_order' => $order
                     ])
                 ]);
 
@@ -281,19 +369,17 @@ class MedicalRegistrationController extends Controller
                     'payment_id' => $payment->id,
                     'amount' => $totalAmountCents / 100,
                     'currency' => 'MYR',
-                    'subscription_id' => $subscription['id'],
-                    'plan_id' => $subscriptionPlan['id'],
+                    'order_id' => $order['order_id'],
                     'checkout_url' => null, // Will be handled by frontend
                 ];
             } catch (\Exception $e) {
-                Log::warning('Curlec subscription creation failed, using mock: ' . $e->getMessage());
+                Log::warning('Curlec order creation failed, using mock: ' . $e->getMessage());
                 
                 $checkoutData = [
                     'payment_id' => $payment->id,
                     'amount' => $totalAmountCents / 100,
                     'currency' => 'MYR',
-                    'subscription_id' => 'sub_MOCK_' . $payment->id,
-                    'plan_id' => 'plan_MOCK_' . $policies->first()->plan_id,
+                    'order_id' => 'order_MOCK_' . $payment->id,
                     'checkout_url' => null,
                 ];
             }
@@ -336,27 +422,12 @@ class MedicalRegistrationController extends Controller
                         'external_ref' => $validated['external_ref'] ?? $payment->external_ref,
                     ]);
 
-                    // Update all related policies to active
-                    if (isset($payment->meta['policy_ids'])) {
-                        MemberPolicy::whereIn('id', $payment->meta['policy_ids'])
-                            ->update(['status' => 'active']);
-
-                        // Update users to have agent codes and active status
-                        $policyIds = $payment->meta['policy_ids'];
-                        $policies = MemberPolicy::whereIn('id', $policyIds)->with('user')->get();
-                        
-                        foreach ($policies as $policy) {
-                            $user = $policy->user;
-                            if (!$user->agent_code) {
-                                $updates = ['agent_code' => $this->generateAgentCode()];
-                                if (\Schema::hasColumn('users', 'status')) {
-                                    $updates['status'] = 'active';
-                                }
-                                if (\Schema::hasColumn('users', 'mlm_activation_date')) {
-                                    $updates['mlm_activation_date'] = now();
-                                }
-                                $user->update($updates);
-                            }
+                    // Complete the registration by creating users and policies
+                    if (isset($payment->meta['pending_registration_id'])) {
+                        $pendingRegistration = PendingRegistration::find($payment->meta['pending_registration_id']);
+                        if ($pendingRegistration && $pendingRegistration->status === 'pending') {
+                            // Complete registration from payment
+                            $this->completeRegistrationFromPayment($pendingRegistration, $commissionService);
                         }
                     }
 
@@ -373,8 +444,7 @@ class MedicalRegistrationController extends Controller
                         $agent->update($updates);
                     }
 
-                    // Calculate and disburse commissions
-                    $commissionService->disburseForPayment($payment);
+                    // Commission disbursement is handled in completeRegistrationFromPayment
 
                     // Log the payment verification
                     Log::info('Payment verification completed', [
@@ -549,10 +619,253 @@ class MedicalRegistrationController extends Controller
         }
     }
 
+    private function calculateNfcCardFee($medicalCardType)
+    {
+        if ($medicalCardType === 'e-Medical Card & Fizikal Medical Card dengan fungsi NFC Touch n Go (RRP RM34.90)') {
+            return 3490; // RM 34.90 in cents
+        }
+        return 0; // No fee for e-Medical Card only
+    }
+
     private function generateAgentCode(): string
     {
         $sequence = User::whereNotNull('agent_code')->count() + 1;
         // Enforce 5-digit suffix (AGT00001)
         return 'AGT' . str_pad($sequence, 5, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * Complete registration from payment verification
+     */
+    private function completeRegistrationFromPayment(PendingRegistration $pendingRegistration, CommissionService $commissionService)
+    {
+        $clients = [];
+        $policies = [];
+
+        $agent = $pendingRegistration->agent;
+        $plan = $pendingRegistration->plan;
+
+        foreach ($pendingRegistration->clients_data as $clientData) {
+            // Generate unique email if not provided
+            $email = $clientData['email'] ?? $this->generateUniqueEmail($clientData['full_name']);
+
+            // Create the client user
+            $clientDataToCreate = [
+                'name' => $clientData['full_name'],
+                'email' => $email,
+                'phone_number' => $clientData['phone_number'],
+                'nric' => $clientData['nric'],
+                'race' => $clientData['race'],
+                'height_cm' => $clientData['height_cm'],
+                'weight_kg' => $clientData['weight_kg'],
+                'emergency_contact_name' => $clientData['emergency_contact_name'],
+                'emergency_contact_phone' => $clientData['emergency_contact_phone'],
+                'emergency_contact_relationship' => $clientData['emergency_contact_relationship'],
+                'password' => Hash::make($clientData['password']),
+                'referrer_code' => $agent->agent_code,
+                'medical_card_type' => $clientData['medical_card_type'],
+                'payment_mode' => $clientData['payment_mode'],
+                'current_payment_mode' => $clientData['payment_mode'],
+                'plan_name' => $plan->name,
+                'current_insurance_plan_id' => $plan->id,
+            ];
+
+            $client = User::create($clientDataToCreate);
+
+            // Set policy dates
+            $startDate = now()->toDateString();
+            $endDate = $this->calculateEndDate($clientData['payment_mode']);
+            $nextPaymentDue = $this->calculateNextPaymentDue($startDate, $clientData['payment_mode']);
+
+            // Create policy for the client
+            $policy = MemberPolicy::create([
+                'user_id' => $client->id,
+                'plan_id' => $plan->id,
+                'policy_number' => 'POL' . time() . $client->id,
+                'start_date' => $startDate,
+                'end_date' => $endDate,
+                'status' => 'active', // Set to active after successful payment
+                'auto_renew' => true,
+            ]);
+
+            // Update user with policy information
+            $client->update([
+                'policy_start_date' => $startDate,
+                'policy_end_date' => $endDate,
+                'next_payment_due' => $nextPaymentDue,
+                'policy_status' => 'active',
+                'premium_amount' => $this->calculatePlanAmount($plan, $clientData['payment_mode']),
+            ]);
+
+            $clients[] = $client;
+            $policies[] = $policy;
+        }
+
+        // Mark registration as completed
+        $pendingRegistration->markAsCompleted();
+
+        // Calculate and disburse commissions for the payment
+        $payment = PaymentTransaction::where('meta->pending_registration_id', $pendingRegistration->id)->first();
+        if ($payment) {
+            $commissionService->disburseForPayment($payment);
+        }
+
+        return ['clients' => $clients, 'policies' => $policies];
+    }
+
+    /**
+     * Get pending registrations for an agent
+     */
+    public function getPendingRegistrations(Request $request)
+    {
+        $user = auth('api')->user();
+        
+        if (!$user || !$user->agent_code) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'User not found or no agent code'
+            ], 404);
+        }
+
+        $pendingRegistrations = PendingRegistration::where('agent_id', $user->id)
+            ->where('status', 'pending')
+            ->where('expires_at', '>', now())
+            ->with(['plan'])
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        $transformedRegistrations = $pendingRegistrations->map(function ($registration) {
+            return [
+                'id' => $registration->id,
+                'registration_id' => $registration->registration_id,
+                'plan_name' => $registration->plan->name,
+                'total_amount' => $registration->total_amount_cents / 100,
+                'currency' => $registration->currency,
+                'clients_count' => count($registration->clients_data),
+                'clients_data' => $registration->clients_data,
+                'amount_breakdown' => $registration->amount_breakdown,
+                'created_at' => $registration->created_at,
+                'expires_at' => $registration->expires_at,
+                'status' => $registration->status,
+            ];
+        });
+
+        return response()->json([
+            'status' => 'success',
+            'data' => [
+                'data' => $transformedRegistrations,
+                'total' => $transformedRegistrations->count(),
+            ]
+        ]);
+    }
+
+    /**
+     * Complete registration after successful payment
+     */
+    public function completeRegistration(Request $request)
+    {
+        $validated = $request->validate([
+            'registration_id' => 'required|string|exists:pending_registrations,registration_id',
+            'payment_id' => 'required|integer|exists:payment_transactions,id',
+        ]);
+
+        try {
+            $pendingRegistration = PendingRegistration::where('registration_id', $validated['registration_id'])->first();
+            
+            if (!$pendingRegistration) {
+                return response()->json(['status' => 'error', 'message' => 'Registration not found'], 404);
+            }
+
+            if ($pendingRegistration->isExpired()) {
+                return response()->json(['status' => 'error', 'message' => 'Registration has expired'], 400);
+            }
+
+            if ($pendingRegistration->status !== 'pending') {
+                return response()->json(['status' => 'error', 'message' => 'Registration already processed'], 400);
+            }
+
+            $clients = [];
+            $policies = [];
+
+            DB::transaction(function () use ($pendingRegistration, &$clients, &$policies) {
+                $agent = $pendingRegistration->agent;
+                $plan = $pendingRegistration->plan;
+
+                foreach ($pendingRegistration->clients_data as $clientData) {
+                    // Generate unique email if not provided
+                    $email = $clientData['email'] ?? $this->generateUniqueEmail($clientData['full_name']);
+
+                    // Create the client user
+                    $clientDataToCreate = [
+                        'name' => $clientData['full_name'],
+                        'email' => $email,
+                        'phone_number' => $clientData['phone_number'],
+                        'nric' => $clientData['nric'],
+                        'race' => $clientData['race'],
+                        'height_cm' => $clientData['height_cm'],
+                        'weight_kg' => $clientData['weight_kg'],
+                        'emergency_contact_name' => $clientData['emergency_contact_name'],
+                        'emergency_contact_phone' => $clientData['emergency_contact_phone'],
+                        'emergency_contact_relationship' => $clientData['emergency_contact_relationship'],
+                        'password' => Hash::make($clientData['password']),
+                        'referrer_code' => $agent->agent_code,
+                        'medical_card_type' => $clientData['medical_card_type'],
+                        'payment_mode' => $clientData['payment_mode'],
+                        'current_payment_mode' => $clientData['payment_mode'],
+                        'plan_name' => $plan->name,
+                        'current_insurance_plan_id' => $plan->id,
+                    ];
+
+                    $client = User::create($clientDataToCreate);
+
+                    // Set policy dates
+                    $startDate = now()->toDateString();
+                    $endDate = $this->calculateEndDate($clientData['payment_mode']);
+                    $nextPaymentDue = $this->calculateNextPaymentDue($startDate, $clientData['payment_mode']);
+
+                    // Create policy for the client
+                    $policy = MemberPolicy::create([
+                        'user_id' => $client->id,
+                        'plan_id' => $plan->id,
+                        'policy_number' => 'POL' . time() . $client->id,
+                        'start_date' => $startDate,
+                        'end_date' => $endDate,
+                        'status' => 'active', // Set to active after successful payment
+                        'auto_renew' => true,
+                    ]);
+
+                    // Update user with policy information
+                    $client->update([
+                        'policy_start_date' => $startDate,
+                        'policy_end_date' => $endDate,
+                        'next_payment_due' => $nextPaymentDue,
+                        'policy_status' => 'active',
+                        'premium_amount' => $this->calculatePlanAmount($plan, $clientData['payment_mode']),
+                    ]);
+
+                    $clients[] = $client;
+                    $policies[] = $policy;
+                }
+
+                // Mark registration as completed
+                $pendingRegistration->markAsCompleted();
+            });
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Registration completed successfully',
+                'data' => [
+                    'clients' => $clients,
+                    'policies' => $policies,
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Registration completion failed: ' . $e->getMessage());
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Registration completion failed: ' . $e->getMessage()
+            ], 422);
+        }
     }
 }

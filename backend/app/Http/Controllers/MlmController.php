@@ -322,6 +322,9 @@ class MlmController extends Controller
             
         // Transform the data to match frontend expectations
         $transformedClients = $clients->map(function($policy) {
+            // Get user's payment mode, default to monthly if not set
+            $paymentMode = $policy->user->payment_mode ?? $policy->user->current_payment_mode ?? 'monthly';
+            
             return [
                 'id' => $policy->user->id,
                 'name' => $policy->user->name,
@@ -333,10 +336,11 @@ class MlmController extends Controller
                 'plan_name' => $policy->plan->name ?? 'Medical Card',
                 'status' => $policy->status,
                 'payment_status' => $policy->status === 'active' ? 'Paid' : 'Pending',
-                'amount' => $policy->plan ? $this->calculatePlanAmount($policy->plan, 'monthly') : 0,
+                'amount' => $policy->plan ? $this->calculatePlanAmount($policy->plan, $paymentMode) : 0,
+                'payment_mode' => $paymentMode, // Add payment mode for period display
                 'created_at' => $policy->created_at,
                 'card_type' => 'e-Medical Card',
-                'medical_card_type' => 'e-Medical Card', // Add medical_card_type for consistency
+                'medical_card_type' => $policy->user->medical_card_type ?? 'e-Medical Card', // Use actual medical card type
             ];
         });
         
@@ -526,37 +530,32 @@ class MlmController extends Controller
                 'plan_id' => $policy->plan_id
             ]);
             
-            // Calculate the payment amount
-            $paymentMode = $policy->user->current_payment_mode ?? 'monthly';
-            $amountCents = $this->calculatePlanAmount($policy->plan, $paymentMode);
+            // Find existing pending payment transaction for this client
+            $payment = \App\Models\PaymentTransaction::where('user_id', $policy->user_id)
+                ->where('status', 'pending')
+                ->where('gateway', 'curlec')
+                ->orderBy('created_at', 'desc')
+                ->first();
+                
+            if (!$payment) {
+                Log::warning('No pending payment found for continue payment', [
+                    'client_id' => $policy->user_id,
+                    'client_name' => $policy->user->name
+                ]);
+                
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'No pending payment found for this client'
+                ], 404);
+            }
             
-            Log::info('Calculated payment amount', [
-                'amount_cents' => $amountCents,
-                'amount_rm' => $amountCents / 100,
-                'payment_mode' => $paymentMode
-            ]);
-            
-            // Create payment transaction
-            $payment = \App\Models\PaymentTransaction::create([
-                'user_id' => $policy->user_id, // The client making the payment
-                'plan_id' => $policy->plan_id,
-                'gateway' => $validated['payment_method'],
-                'amount_cents' => $amountCents,
-                'currency' => 'MYR',
-                'status' => 'pending',
-                'meta' => [
-                    'policy_id' => $policy->id,
-                    'agent_id' => $user->id,
-                    'agent_code' => $user->agent_code,
-                    'payment_type' => 'continue_payment',
-                    'client_name' => $policy->user->name,
-                ],
-            ]);
-            
-            Log::info('Payment transaction created', [
+            Log::info('Found existing payment transaction', [
                 'payment_id' => $payment->id,
-                'amount_cents' => $amountCents
+                'amount_cents' => $payment->amount_cents,
+                'amount_rm' => $payment->amount_cents / 100,
+                'client_name' => $policy->user->name
             ]);
+            
             
             if ($validated['payment_method'] === 'curlec') {
                 // Create Curlec one-time payment for continue payment
@@ -580,7 +579,7 @@ class MlmController extends Controller
                     
                     $checkoutData = [
                         'payment_id' => $payment->id,
-                        'amount' => $amountCents / 100,
+                        'amount' => $payment->amount_cents / 100, // Use existing payment amount
                         'currency' => 'MYR',
                         'order_id' => $order['order_id'],
                         'checkout_url' => null,
@@ -591,10 +590,9 @@ class MlmController extends Controller
                     
                     $checkoutData = [
                         'payment_id' => $payment->id,
-                        'amount' => $amountCents / 100,
+                        'amount' => $payment->amount_cents / 100, // Use existing payment amount
                         'currency' => 'MYR',
-                        'subscription_id' => 'sub_MOCK_' . $payment->id,
-                        'plan_id' => 'plan_MOCK_' . $policy->plan_id,
+                        'order_id' => 'order_MOCK_' . $payment->id,
                         'checkout_url' => null,
                     ];
                 }
@@ -730,7 +728,7 @@ class MlmController extends Controller
         return 'AGT' . $seq;
     }
 
-    private function calculatePlanAmount($plan, $paymentMode)
+    public function calculatePlanAmount($plan, $paymentMode)
     {
         // The plan has annual price_cents, so we need to calculate monthly amount
         $annualAmount = $plan->price_cents ?? 0;

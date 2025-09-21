@@ -108,6 +108,7 @@ export default function ProfilePage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage] = useState(5);
+    const [pendingRegistrations, setPendingRegistrations] = useState<any[]>([]);
     const [phoneChangeStep, setPhoneChangeStep] = useState<'initial' | 'tac-verification' | 'new-phone' | 'new-tac-verification' | 'success'>('initial');
     const [tacCode, setTacCode] = useState('');
     const [newPhoneNumber, setNewPhoneNumber] = useState('');
@@ -317,53 +318,64 @@ export default function ProfilePage() {
         }
     };
 
-    // Load payments and mandates on enter relevant tabs
-    useEffect(() => {
-        async function loadData() {
-            setError("");
-            if (!user) return;
-            if (activeTab === 'overview') {
-                loadOverviewData();
-            } else if (activeTab === 'referrer') {
-                loadReferrerData();
-            } else if (activeTab === 'payment-history') {
-                setIsLoading(true);
-                try {
-                    const res = await apiService.getPaymentHistory(1);
-                    if (res.success && res.data) {
-                        setPaymentHistory(res.data.data || []);
-                    } else {
-                        setError(res.message || 'Failed to load payment history');
-                    }
-                } catch (e) {
-                    setError(e instanceof Error ? e.message : 'Failed to load payment history');
-                } finally {
-                    setIsLoading(false);
+    // Load data function
+    const loadData = async () => {
+        setError("");
+        if (!user) return;
+        if (activeTab === 'overview') {
+            loadOverviewData();
+        } else if (activeTab === 'referrer') {
+            loadReferrerData();
+        } else if (activeTab === 'payment-history') {
+            setIsLoading(true);
+            try {
+                const res = await apiService.getPaymentHistory(1);
+                if (res.success && res.data) {
+                    setPaymentHistory(res.data.data || []);
+                } else {
+                    setError(res.message || 'Failed to load payment history');
                 }
-                // Load gateway payments in parallel (non-blocking UI)
-                try {
-                    const gp = await apiService.getGatewayPaymentHistory(1);
-                    if (gp.success && gp.data) {
-                        setGatewayPayments(gp.data.data || []);
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to load payment history');
+            } finally {
+                setIsLoading(false);
             }
-                } catch {}
-            }
-            if (activeTab === 'medical-insurance') {
-                setIsLoading(true);
-                try {
-                    const res = await apiService.getClients(1);
-                    if (res.success && res.data) {
-                        setClients(res.data.data || []);
-                    } else {
-                        setError(res.message || 'Failed to load clients');
-                    }
-                } catch (e) {
-                    setError(e instanceof Error ? e.message : 'Failed to load clients');
-                } finally {
-                    setIsLoading(false);
+            // Load gateway payments in parallel (non-blocking UI)
+            try {
+                const gp = await apiService.getGatewayPaymentHistory(1);
+                if (gp.success && gp.data) {
+                    setGatewayPayments(gp.data.data || []);
+        }
+            } catch {}
+        }
+        if (activeTab === 'medical-insurance') {
+            setIsLoading(true);
+            try {
+                // Load both clients and pending registrations
+                const [clientsRes, pendingRes] = await Promise.all([
+                    apiService.getClients(1),
+                    apiService.getPendingRegistrations()
+                ]);
+                
+                if (clientsRes.success && clientsRes.data) {
+                    setClients(clientsRes.data.data || []);
+                } else {
+                    setError(clientsRes.message || 'Failed to load clients');
                 }
+                
+                if (pendingRes.success && pendingRes.data) {
+                    setPendingRegistrations(pendingRes.data.data || []);
+                }
+            } catch (e) {
+                setError(e instanceof Error ? e.message : 'Failed to load data');
+            } finally {
+                setIsLoading(false);
             }
         }
+    };
+
+    // Load payments and mandates on enter relevant tabs
+    useEffect(() => {
         loadData();
     }, [activeTab, user]);
 
@@ -480,10 +492,26 @@ export default function ProfilePage() {
         client.plan_name?.toLowerCase().includes(searchQuery.toLowerCase())
     );
 
-    const totalPages = Math.ceil(filteredClients.length / itemsPerPage);
+    const filteredPendingRegistrations = pendingRegistrations.filter(registration => 
+        registration.clients_data?.some((client: any) => 
+            client.full_name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            client.nric?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            client.phone_number?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            client.email?.toLowerCase().includes(searchQuery.toLowerCase())
+        ) ||
+        registration.plan_name?.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+
+    // Combine clients and pending registrations for display
+    const allItems = [
+        ...filteredClients.map(client => ({ ...client, type: 'client' })),
+        ...filteredPendingRegistrations.map(registration => ({ ...registration, type: 'pending' }))
+    ];
+    
+    const totalPages = Math.ceil(allItems.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const endIndex = startIndex + itemsPerPage;
-    const paginatedClients = filteredClients.slice(startIndex, endIndex);
+    const paginatedItems = allItems.slice(startIndex, endIndex);
 
     const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         setSearchQuery(e.target.value);
@@ -1452,8 +1480,8 @@ export default function ProfilePage() {
                                     <Shield className="w-4 h-4 text-white" />
                                     </div>
                                 <div>
-                                    <h2 className="text-lg font-bold text-gray-800">Medical Insurance Clients</h2>
-                                    <p className="text-xs text-gray-500">{clients.length} total clients</p>
+                                    <h2 className="text-lg font-bold text-gray-800">Medical Insurance</h2>
+                                    <p className="text-xs text-gray-500">{clients.length} clients • {pendingRegistrations.length} pending</p>
                                 </div>
                             </div>
                             <button
@@ -1482,10 +1510,13 @@ export default function ProfilePage() {
                                 </div>
                                 <div className="flex gap-2 text-xs">
                                     <span className="bg-emerald-100 text-emerald-700 px-2 py-1 rounded">
-                                        {clients.length} Total
+                                        {clients.length} Clients
+                                    </span>
+                                    <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded">
+                                        {pendingRegistrations.length} Pending
                                     </span>
                                     <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded">
-                                        {filteredClients.length} Found
+                                        {allItems.length} Found
                                     </span>
                                 </div>
                             </div>
@@ -1511,7 +1542,7 @@ export default function ProfilePage() {
                         {/* Compact Clients List */}
                         {!isLoading && !error && (
                             <div className="space-y-3">
-                                {paginatedClients.length === 0 ? (
+                                {paginatedItems.length === 0 ? (
                                     <div className="bg-white border border-gray-200 rounded-lg p-8 text-center">
                                         <Shield className="w-12 h-12 text-gray-300 mx-auto mb-3" />
                                         <h3 className="text-lg font-semibold text-gray-800 mb-2">
@@ -1533,7 +1564,10 @@ export default function ProfilePage() {
                                     <>
                                         {/* Compact Client Cards */}
                                         <div className="space-y-3">
-                                            {paginatedClients.map((client, index) => (
+                                            {paginatedItems.map((item, index) => {
+                                                if (item.type === 'client') {
+                                                    const client = item;
+                                                    return (
                                                 <div key={client.id || index} className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 hover:border-emerald-200">
                                                     <div className="flex items-start justify-between gap-3">
                                                         {/* Client Avatar and Basic Info */}
@@ -1567,6 +1601,10 @@ export default function ProfilePage() {
                                                                     <div>
                                                                         <span className="text-gray-500">Total Amount:</span>
                                                                         <div className="font-medium text-gray-800">RM {((client.amount || 0) / 100).toFixed(2)}</div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-gray-500">Period:</span>
+                                                                        <div className="font-medium text-gray-800 capitalize">{client.payment_mode || 'Monthly'}</div>
                                                                     </div>
                                                                     <div>
                                                                         <span className="text-gray-500">Payment:</span>
@@ -1606,14 +1644,68 @@ export default function ProfilePage() {
                                         </div>
                                     </div>
                                 </div>
-                                            ))}
+                                                    );
+                                                } else if (item.type === 'pending') {
+                                                    const registration = item;
+                                                    return (
+                                                <div key={registration.id || index} className="bg-white border border-orange-200 rounded-lg p-4 hover:shadow-md transition-all duration-200 hover:border-orange-300">
+                                                    <div className="flex items-start justify-between gap-3">
+                                                        {/* Pending Registration Info */}
+                                                        <div className="flex items-start gap-3 flex-1">
+                                                            <div className="w-10 h-10 bg-gradient-to-r from-orange-500 to-orange-600 rounded-lg flex items-center justify-center text-white font-bold text-sm">
+                                                                P
+                                                            </div>
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <h3 className="text-base font-semibold text-gray-800 truncate">
+                                                                        Pending Registration
+                                                                    </h3>
+                                                                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                                                                        Pending Payment
+                                                                    </span>
+                                                                </div>
+                                                                <p className="text-xs text-gray-600 mb-2">
+                                                                    {registration.clients_count} client{registration.clients_count > 1 ? 's' : ''} • {registration.plan_name}
+                                                                </p>
+                                                                <p className="text-sm font-semibold text-orange-600">
+                                                                    RM {registration.total_amount.toFixed(2)}
+                                                                </p>
+                                                                <p className="text-xs text-gray-500">
+                                                                    Expires: {new Date(registration.expires_at).toLocaleDateString()}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Action Buttons */}
+                                                        <div className="flex gap-1">
+                                                            <button 
+                                                                onClick={() => handleContinuePendingPayment(registration)} 
+                                                                className="px-3 py-1.5 bg-orange-600 text-white text-xs font-medium rounded-lg hover:bg-orange-700 transition-colors"
+                                                                title="Continue Payment"
+                                                            >
+                                                                Continue Payment
+                                                            </button>
+                                                            <button 
+                                                                onClick={() => handleViewPendingDetails(registration)} 
+                                                                className="p-2 bg-orange-100 text-orange-700 rounded-lg hover:bg-orange-200 transition-colors"
+                                                                title="View Details"
+                                                            >
+                                                                <Eye className="w-4 h-4" />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                    );
+                                                }
+                                                return null;
+                                            })}
                             </div>
                             
                                         {/* Compact Pagination */}
                                         {totalPages > 1 && (
                                             <div className="flex items-center justify-between bg-white border border-gray-200 rounded-lg p-3">
                                                 <div className="text-xs text-gray-600">
-                                                    {startIndex + 1}-{Math.min(endIndex, filteredClients.length)} of {filteredClients.length}
+                                                    {startIndex + 1}-{Math.min(endIndex, allItems.length)} of {allItems.length}
                                     </div>
                                                 
                                                 <div className="flex items-center gap-1">
@@ -2182,6 +2274,92 @@ export default function ProfilePage() {
             console.error('Error continuing payment:', error);
             alert('Failed to load payment details. Please try again.');
         }
+    };
+
+    const handleContinuePendingPayment = async (registration: any) => {
+        try {
+            // Create payment for pending registration
+            const paymentResponse = await apiService.createMedicalInsurancePayment({
+                registration_id: registration.registration_id,
+                payment_method: 'curlec',
+                return_url: window.location.origin + '/payment/success',
+                cancel_url: window.location.origin + '/payment/cancel'
+            });
+
+            if (!paymentResponse.success) {
+                alert(paymentResponse.message || 'Failed to create payment');
+                return;
+            }
+
+            const paymentData = paymentResponse.data;
+            const paymentConfig = await apiService.getMedicalInsurancePaymentConfig();
+
+            if (!paymentConfig.success) {
+                alert('Payment configuration not available');
+                return;
+            }
+
+            // Initialize Razorpay checkout
+            const options = {
+                key: paymentConfig.data.key_id,
+                order_id: paymentData.checkout_data?.order_id,
+                amount: Math.round(paymentData.checkout_data?.amount * 100), // Convert RM to cents for Razorpay
+                currency: 'MYR',
+                name: 'KH Holdings Insurance',
+                description: 'Medical Insurance Payment',
+                image: '/logo.png',
+                prefill: {
+                    name: registration.clients_data[0]?.full_name || '',
+                    email: registration.clients_data[0]?.email || '',
+                    contact: registration.clients_data[0]?.phone_number || ''
+                },
+                notes: {
+                    payment_id: paymentData.payment.id,
+                    registration_id: registration.registration_id
+                },
+                theme: { color: '#10b981' },
+                handler: async function (razorpayResponse: any) {
+                    try {
+                        // Verify payment with backend
+                        const verifyResponse = await apiService.verifyMedicalInsurancePayment({
+                            payment_id: paymentData.payment.id,
+                            status: 'success',
+                            external_ref: razorpayResponse.razorpay_payment_id
+                        });
+
+                        if (verifyResponse.success) {
+                            alert('Payment successful! Registration completed.');
+                            // Reload data to show updated status
+                            loadData();
+                        } else {
+                            alert(verifyResponse.message || "Payment verification failed");
+                        }
+                    } catch (err) {
+                        alert(err instanceof Error ? err.message : "Payment verification failed");
+                    }
+                },
+                modal: {
+                    ondismiss: function() {
+                        console.log('Payment modal dismissed');
+                    }
+                }
+            };
+
+            if ((window as any).Razorpay && options.order_id) {
+                const razorpay = new (window as any).Razorpay(options);
+                razorpay.open();
+            } else {
+                alert('Payment gateway not available');
+            }
+        } catch (error) {
+            console.error('Error processing pending payment:', error);
+            alert('Failed to process payment');
+        }
+    };
+
+    const handleViewPendingDetails = (registration: any) => {
+        // Show pending registration details
+        alert(`Pending Registration Details:\n\nRegistration ID: ${registration.registration_id}\nPlan: ${registration.plan_name}\nClients: ${registration.clients_count}\nAmount: RM ${registration.total_amount.toFixed(2)}\nExpires: ${new Date(registration.expires_at).toLocaleString()}`);
     };
 
     const handleProcessPayment = async () => {
@@ -3063,9 +3241,13 @@ export default function ProfilePage() {
                                     <span className="text-gray-600">NRIC:</span>
                                     <span className="font-medium">{selectedClient.nric}</span>
                                 </div>
+                                <div className="flex justify-between">
+                                    <span className="text-gray-600">Period:</span>
+                                    <span className="font-medium capitalize">{selectedClient.payment_mode || 'Monthly'}</span>
+                                </div>
                                 <div className="flex justify-between text-lg font-semibold text-green-600">
                                     <span>Total Amount:</span>
-                                    <span>RM {((selectedPaymentPolicy.amount || 0) / 100).toFixed(2)}</span>
+                                    <span>RM {((selectedClient.amount || 0) / 100).toFixed(2)}</span>
                                 </div>
                             </div>
                         </div>
@@ -3091,7 +3273,7 @@ export default function ProfilePage() {
                                 className="flex-1 py-2 px-4 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center justify-center"
                             >
                                 <CreditCard className="w-4 h-4 mr-2" />
-                                Pay RM {((selectedPaymentPolicy.amount || 0) / 100).toFixed(2)}
+                                Pay RM {((selectedClient.amount || 0) / 100).toFixed(2)}
                             </button>
                         </div>
                     </div>

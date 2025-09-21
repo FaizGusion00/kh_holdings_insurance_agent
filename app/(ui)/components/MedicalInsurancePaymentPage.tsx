@@ -29,7 +29,7 @@ interface PaymentPageProps {
   onClose: () => void;
   onSuccess: (payment: any) => void;
   initialTotalAmount?: number | null;
-  initialBreakdown?: Array<{ customer_type?: string; plan_type?: string; payment_mode?: string; line_total?: number }>;
+  initialBreakdown?: Array<{ plan_type?: string; payment_mode?: string; line_total?: number }>;
   initialPolicies?: Array<{ id: number; [key: string]: any }>;
   externalMode?: boolean;
 }
@@ -111,12 +111,14 @@ export default function MedicalInsurancePaymentPage({
       if (response.success && response.data) {
         const paymentData = response.data;
         
-        // Initialize Curlec Subscription checkout
+        // Initialize Curlec One-time Payment checkout (same as continue payment)
         const options = {
           key: paymentConfig?.key_id,
-          subscription_id: paymentData.checkout_data?.subscription_id,
+          order_id: paymentData.checkout_data?.order_id,
+          amount: Math.round(paymentData.checkout_data?.amount * 100), // Convert RM to cents for Razorpay
+          currency: 'MYR',
           name: 'KH Holdings Insurance',
-          description: 'Medical Insurance Subscription',
+          description: 'Medical Insurance Payment',
           image: '/logo.png',
           prefill: {
             name: policies?.[0]?.user?.name || '',
@@ -135,17 +137,17 @@ export default function MedicalInsurancePaymentPage({
                 ? await apiService.verifyMedicalInsurancePaymentExternal({
                     payment_id: paymentData.payment.id,
                     status: 'success',
-                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_subscription_id
+                    external_ref: razorpayResponse.razorpay_payment_id
                   })
                 : await apiService.verifyMedicalInsurancePayment({
                     payment_id: paymentData.payment.id,
                     status: 'success',
-                    external_ref: razorpayResponse.razorpay_payment_id || razorpayResponse.razorpay_subscription_id
+                    external_ref: razorpayResponse.razorpay_payment_id
                   });
 
               if (verifyResponse.success) {
                 onSuccess(verifyResponse.data);
-                alert('Subscription created successfully! Thank you!');
+                alert('Payment processed successfully! Thank you!');
                 onClose();
               } else {
                 setError(verifyResponse.message || "Payment verification failed");
@@ -161,7 +163,7 @@ export default function MedicalInsurancePaymentPage({
           }
         };
 
-        if ((window as any).Razorpay && options.subscription_id) {
+        if ((window as any).Razorpay && options.order_id) {
           const razorpay = new (window as any).Razorpay(options);
           razorpay.open();
         } else {

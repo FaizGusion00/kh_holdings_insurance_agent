@@ -9,7 +9,7 @@
 		@if($user->agent_code)
 			<a href="{{ route('admin.users.network', $user) }}" class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">View Network</a>
 		@endif
-		<a href="{{ route('admin.users.medical', $user) }}" class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700">Medical Info</a>
+		<a href="{{ route('admin.users.medical', $user) }}" class="bg-emerald-600 text-white px-4 py-2 rounded hover:bg-emerald-700 font-medium">Medical Info</a>
 		<a href="{{ route('admin.users.index') }}" class="bg-gray-600 text-white px-4 py-2 rounded hover:bg-gray-700">Back to Users</a>
 	</div>
 </div>

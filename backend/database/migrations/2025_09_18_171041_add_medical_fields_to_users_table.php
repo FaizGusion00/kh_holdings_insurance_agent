@@ -45,11 +45,8 @@ return new class extends Migration
             if (!Schema::hasColumn('users', 'medical_card_type')) {
                 $table->string('medical_card_type')->nullable()->after('payment_mode');
             }
-            if (!Schema::hasColumn('users', 'customer_type')) {
-                $table->string('customer_type')->default('agent')->after('medical_card_type');
-            }
             if (!Schema::hasColumn('users', 'current_insurance_plan_id')) {
-                $table->foreignId('current_insurance_plan_id')->nullable()->constrained('insurance_plans')->after('customer_type');
+                $table->foreignId('current_insurance_plan_id')->nullable()->constrained('insurance_plans')->after('medical_card_type');
             }
             if (!Schema::hasColumn('users', 'policy_start_date')) {
                 $table->date('policy_start_date')->nullable()->after('current_insurance_plan_id');
@@ -94,7 +91,6 @@ return new class extends Migration
                 'plan_name',
                 'payment_mode', 
                 'medical_card_type',
-                'customer_type',
                 'current_insurance_plan_id',
                 'policy_start_date',
                 'policy_end_date',
