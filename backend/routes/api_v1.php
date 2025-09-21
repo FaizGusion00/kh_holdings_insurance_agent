@@ -60,6 +60,7 @@ Route::prefix('api/v1')->group(function () {
         Route::put('/notifications/{id}/read', [\App\Http\Controllers\NotificationController::class, 'markAsRead']);
         Route::put('/notifications/mark-all-read', [\App\Http\Controllers\NotificationController::class, 'markAllAsRead']);
         Route::get('/notifications/unread-count', [\App\Http\Controllers\NotificationController::class, 'unreadCount']);
+        Route::delete('/notifications/{id}', [\App\Http\Controllers\NotificationController::class, 'destroy']);
 
         // Medical registration endpoints
         Route::post('/medical-registration/register', [\App\Http\Controllers\MedicalRegistrationController::class, 'register']);

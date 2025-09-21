@@ -234,12 +234,20 @@ class MlmController extends Controller
             ->where('status', 'pending')
             ->sum('commission_cents');
             
+        // Calculate monthly commission (current month)
+        $monthlyCommissionCents = \App\Models\CommissionTransaction::where('earner_user_id', $user->id)
+            ->where('status', 'posted')
+            ->whereMonth('created_at', now()->month)
+            ->whereYear('created_at', now()->year)
+            ->sum('commission_cents');
+            
         return response()->json([
             'status' => 'success',
             'data' => [
                 'total_earned' => ($totalEarnedCents ?? 0) / 100,
                 'pending_amount' => ($pendingAmountCents ?? 0) / 100,
-                'total_commission' => (($totalEarnedCents ?? 0) + ($pendingAmountCents ?? 0)) / 100
+                'total_commission' => (($totalEarnedCents ?? 0) + ($pendingAmountCents ?? 0)) / 100,
+                'monthly_commission' => ($monthlyCommissionCents ?? 0) / 100
             ]
         ]);
     }

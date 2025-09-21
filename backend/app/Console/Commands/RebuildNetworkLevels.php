@@ -35,22 +35,52 @@ class RebuildNetworkLevels extends Command
             }
         }
         
-        $networkLevelService->rebuildNetworkLevels();
+        // Clear existing data
+        \App\Models\NetworkLevel::truncate();
+        $this->info('Cleared existing network levels data.');
         
-        $this->info('Network levels rebuild completed!');
+        // Get all agents
+        $agents = \App\Models\User::whereNotNull('agent_code')->get();
+        $this->info("Found {$agents->count()} agents to process...");
+        
+        $bar = $this->output->createProgressBar($agents->count());
+        $bar->start();
+        
+        $successCount = 0;
+        $errorCount = 0;
+        
+        foreach ($agents as $agent) {
+            try {
+                $networkLevelService->calculateNetworkLevelsForAgent($agent->agent_code);
+                $successCount++;
+            } catch (\Exception $e) {
+                $errorCount++;
+                $this->error("Failed to calculate for {$agent->agent_code}: " . $e->getMessage());
+            }
+            $bar->advance();
+        }
+        
+        $bar->finish();
+        $this->newLine();
+        
+        $this->info("Network levels rebuild completed!");
+        $this->info("Successfully processed: {$successCount} agents");
+        if ($errorCount > 0) {
+            $this->warn("Errors encountered: {$errorCount} agents");
+        }
         
         // Show summary
         $totalLevels = \App\Models\NetworkLevel::count();
         $this->info("Total network level records: {$totalLevels}");
         
-        // Show level breakdown
-        $breakdown = \App\Models\NetworkLevel::selectRaw('level, COUNT(*) as count')
-            ->groupBy('level')
-            ->orderBy('level')
+        // Show agent breakdown
+        $agentBreakdown = \App\Models\NetworkLevel::selectRaw('root_agent_code, COUNT(*) as count')
+            ->groupBy('root_agent_code')
+            ->orderBy('root_agent_code')
             ->get();
             
-        $this->table(['Level', 'Count'], $breakdown->map(function($item) {
-            return [$item->level, $item->count];
+        $this->table(['Agent Code', 'Network Members'], $agentBreakdown->map(function($item) {
+            return [$item->root_agent_code, $item->count];
         }));
     }
 }

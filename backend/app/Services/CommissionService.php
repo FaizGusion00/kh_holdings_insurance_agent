@@ -7,7 +7,9 @@ use App\Models\CommissionRate;
 use App\Models\CommissionTransaction;
 use App\Models\PaymentTransaction;
 use App\Models\User;
+use App\Services\NotificationService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class CommissionService
 {
@@ -65,6 +67,20 @@ class CommissionService
                     'amount_cents' => $commission,
                     'commission_transaction_id' => $ct->id,
                 ]);
+
+                // Create commission notification
+                try {
+                    $notificationService = new NotificationService();
+                    $notificationService->createCommissionNotification(
+                        $earner->id,
+                        $commission / 100, // Convert cents to dollars
+                        "Level {$level} commission from {$sourceUser->name}",
+                        $sourceUser->id,
+                        $ct->id
+                    );
+                } catch (\Exception $e) {
+                    Log::error("Failed to create commission notification for user {$earner->id}: " . $e->getMessage());
+                }
             }
         });
     }

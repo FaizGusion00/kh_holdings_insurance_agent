@@ -250,4 +250,135 @@ class NetworkLevelService
             $this->calculateUserNetworkLevel($user);
         }
     }
+
+    /**
+     * Calculate network levels for a specific agent as the root
+     */
+    public function calculateNetworkLevelsForAgent($agentCode)
+    {
+        $agent = User::where('agent_code', $agentCode)->first();
+        if (!$agent) {
+            return false;
+        }
+
+        // Get all users in this agent's downline network
+        $allUsers = $this->getAllDownlineUsers($agentCode);
+        
+        // Add the agent themselves as level 1
+        $allUsers->prepend($agent);
+
+        foreach ($allUsers as $user) {
+            $this->calculateUserNetworkLevelForRoot($user, $agentCode);
+        }
+
+        return true;
+    }
+
+    /**
+     * Get all downline users for an agent
+     */
+    private function getAllDownlineUsers($agentCode)
+    {
+        $downlines = collect();
+        $directDownlines = User::where('referrer_code', $agentCode)->get();
+
+        foreach ($directDownlines as $downline) {
+            $downlines->push($downline);
+            if ($downline->agent_code) {
+                $downlines = $downlines->merge($this->getAllDownlineUsers($downline->agent_code));
+            }
+        }
+
+        return $downlines;
+    }
+
+    /**
+     * Calculate user network level for a specific root agent
+     */
+    private function calculateUserNetworkLevelForRoot(User $user, $rootAgentCode)
+    {
+        if (!$user->agent_code) {
+            return;
+        }
+
+        // Calculate level and path for this specific root
+        $levelData = $this->calculateLevelAndPathForRoot($user, $rootAgentCode);
+        
+        if (!$levelData) {
+            return;
+        }
+
+        // Calculate additional stats
+        $stats = $this->calculateUserStats($user);
+
+        // Create or update network level record
+        NetworkLevel::updateOrCreate(
+            [
+                'user_id' => $user->id,
+                'root_agent_code' => $rootAgentCode
+            ],
+            [
+                'agent_code' => $user->agent_code,
+                'referrer_code' => $user->referrer_code,
+                'level' => $levelData['level'],
+                'root_agent_code' => $rootAgentCode,
+                'level_path' => $levelData['path'],
+                'direct_downlines_count' => $stats['direct_downlines'],
+                'total_downlines_count' => $stats['total_downlines'],
+                'commission_earned' => $stats['commission_earned'],
+                'active_policies_count' => $stats['active_policies'],
+                'last_updated' => now()
+            ]
+        );
+    }
+
+    /**
+     * Calculate level and path for a user with a specific root agent
+     */
+    private function calculateLevelAndPathForRoot(User $user, $rootAgentCode)
+    {
+        if ($user->agent_code === $rootAgentCode) {
+            return [
+                'level' => 1,
+                'path' => [$user->agent_code]
+            ];
+        }
+
+        $level = 1;
+        $path = [$user->agent_code];
+        $currentCode = $user->referrer_code;
+        $visited = [];
+
+        // Walk up the referral chain to find the level
+        while ($currentCode && $currentCode !== $rootAgentCode) {
+            if (in_array($currentCode, $visited)) {
+                break; // Prevent infinite loops
+            }
+            $visited[] = $currentCode;
+
+            $level++;
+            array_unshift($path, $currentCode);
+
+            // Find the referrer of the current code
+            $referrer = User::where('agent_code', $currentCode)->first();
+            if (!$referrer) {
+                break;
+            }
+
+            $currentCode = $referrer->referrer_code;
+        }
+
+        // Add 1 more level because the user themselves count as a level
+        $level++;
+
+        // If we didn't reach the root agent, this user is not in the network
+        if ($currentCode !== $rootAgentCode) {
+            return null;
+        }
+
+        return [
+            'level' => $level,
+            'path' => $path
+        ];
+    }
 }

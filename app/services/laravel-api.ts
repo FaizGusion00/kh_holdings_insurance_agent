@@ -87,6 +87,8 @@ interface DashboardStats {
   target_achievement: number;
   mlm_level: number;
   wallet_balance: string;
+  total_hospitals: number;
+  total_clinics: number;
 }
 
 interface WalletData {

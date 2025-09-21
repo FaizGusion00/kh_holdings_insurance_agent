@@ -59,6 +59,8 @@ export interface DashboardStats {
   target_achievement: number;
   mlm_level: number;
   wallet_balance: string;
+  total_hospitals: number;
+  total_clinics: number;
 }
 
 // Member interface for dashboard
@@ -752,7 +754,26 @@ class ApiServiceBridge {
       const response = await laravelApi.getNotifications(params);
       
       if (response.status === 'success' && response.data) {
-        const notifications = response.data.notifications || [];
+        const rawNotifications = response.data.notifications || [];
+        
+        // Transform notifications to match frontend interface
+        const notifications: Notification[] = rawNotifications.map((notif: any) => ({
+          id: notif.id,
+          user_id: notif.user_id || 0,
+          type: notif.type,
+          title: notif.title,
+          message: notif.message,
+          is_read: notif.is_read || false,
+          read_at: notif.read_at,
+          created_at: notif.created_at,
+          // Add frontend-specific fields
+          time_ago: this.formatTimeAgo(notif.created_at),
+          icon: this.getNotificationIcon(notif.type, notif.category),
+          background_color: this.getNotificationColor(notif.type, notif.priority),
+          is_important: notif.priority === 'high' || notif.priority === 'urgent',
+          action_url: this.getNotificationActionUrl(notif.type, notif.data)
+        }));
+        
         return {
           status: 'success',
           success: true,
@@ -1224,6 +1245,89 @@ class ApiServiceBridge {
     }
   }
 
+  // =====================
+  // MEMBER DETAILS
+  // =====================
+
+  async getMemberDetails(memberId: number): Promise<ApiResponse<any>> {
+    try {
+      // Get member details from the network
+      const networkResponse = await this.getNetwork();
+      if (networkResponse.success && networkResponse.data) {
+        const allMembers = [
+          ...(networkResponse.data.direct_referrals || []),
+          ...(networkResponse.data.network_members || [])
+        ];
+        
+        const member = allMembers.find((m: any) => m.id === memberId);
+        if (member) {
+          // Get member's policies to determine insurance plan
+          const policiesResponse = await this.getClientPolicies(memberId);
+          let insurancePlan = 'MediPlan Coop'; // Default
+          
+          if (policiesResponse.success && policiesResponse.data?.data?.length > 0) {
+            const policy = policiesResponse.data.data[0];
+            insurancePlan = policy.plan?.name || 'MediPlan Coop';
+          }
+          
+          return {
+            status: 'success',
+            success: true,
+            data: {
+              ...member,
+              insurance_plan: insurancePlan
+            }
+          };
+        }
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: 'Member not found'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get member details'
+      };
+    }
+  }
+
+  async getMemberPaymentHistory(memberId: number): Promise<ApiResponse<any>> {
+    try {
+      // Get all payments and filter by member
+      const paymentsResponse = await this.getPayments();
+      
+      if (paymentsResponse.success && paymentsResponse.data) {
+        const memberPayments = paymentsResponse.data.data?.filter((payment: any) => 
+          payment.user?.id === memberId || payment.user_id === memberId
+        ) || [];
+        
+        return {
+          status: 'success',
+          success: true,
+          data: {
+            data: memberPayments
+          }
+        };
+      }
+      
+      return {
+        status: 'error',
+        success: false,
+        message: 'Failed to get payment history'
+      };
+    } catch (error) {
+      return {
+        status: 'error',
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to get client policies'
+      };
+    }
+  }
+
   async updatePolicyStatus(policyId: number, status: string): Promise<ApiResponse<any>> {
     try {
       const response = await laravelApi.put(`/mlm/policy/${policyId}/status`, { status });
@@ -1316,6 +1420,63 @@ class ApiServiceBridge {
   // =====================
   // HELPER METHODS
   // =====================
+
+  private formatTimeAgo(dateString: string): string {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
+
+    if (diffInSeconds < 60) return 'Just now';
+    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
+    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
+    if (diffInSeconds < 2592000) return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    return date.toLocaleDateString();
+  }
+
+  private getNotificationIcon(type: string, category?: string): string {
+    switch (type) {
+      case 'welcome': return '👋';
+      case 'commission_earned': return '💰';
+      case 'payment_update': return '💳';
+      case 'new_network_member': return '👥';
+      case 'network_growth': return '📈';
+      case 'policy_renewal_reminder': return '📋';
+      case 'payment_due_reminder': return '⏰';
+      case 'level_upgrade': return '🎉';
+      case 'system': return '🔧';
+      default: return '🔔';
+    }
+  }
+
+  private getNotificationColor(type: string, priority?: string): string {
+    if (priority === 'urgent') return 'bg-red-100 text-red-600';
+    if (priority === 'high') return 'bg-orange-100 text-orange-600';
+    
+    switch (type) {
+      case 'commission_earned': return 'bg-green-100 text-green-600';
+      case 'payment_update': return 'bg-blue-100 text-blue-600';
+      case 'new_network_member': return 'bg-purple-100 text-purple-600';
+      case 'level_upgrade': return 'bg-yellow-100 text-yellow-600';
+      case 'system': return 'bg-gray-100 text-gray-600';
+      default: return 'bg-blue-100 text-blue-600';
+    }
+  }
+
+  private getNotificationActionUrl(type: string, data?: any): string | undefined {
+    switch (type) {
+      case 'commission_earned':
+        return '/wallet';
+      case 'payment_update':
+        return '/payments';
+      case 'new_network_member':
+      case 'network_growth':
+        return '/network';
+      case 'policy_renewal_reminder':
+        return '/policies';
+      default:
+        return undefined;
+    }
+  }
 
   private convertResponse<T>(laravelResponse: LaravelApiResponse<T>): ApiResponse<T> {
     return {

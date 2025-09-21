@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\AgentWallet;
 use App\Models\User;
+use App\Services\NetworkLevelService;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
@@ -47,6 +49,32 @@ class AuthController extends Controller
             ]);
 
         AgentWallet::firstOrCreate(['user_id' => $user->id]);
+
+        // Calculate network levels for the new agent
+        try {
+            $networkLevelService = new NetworkLevelService();
+            $networkLevelService->calculateNetworkLevelsForAgent($user->agent_code);
+        } catch (\Exception $e) {
+            \Log::error("Failed to calculate network levels for new agent {$user->agent_code}: " . $e->getMessage());
+        }
+
+        // Create notifications
+        try {
+            $notificationService = new NotificationService();
+            
+            // Welcome notification for new user
+            $notificationService->createWelcomeNotification($user->id);
+            
+            // Notify referrer if exists
+            if ($data['referrer_code']) {
+                $referrer = User::where('agent_code', $data['referrer_code'])->first();
+                if ($referrer) {
+                    $notificationService->createNewNetworkMemberNotification($referrer->id, $user->id);
+                }
+            }
+        } catch (\Exception $e) {
+            \Log::error("Failed to create notifications for new user {$user->id}: " . $e->getMessage());
+        }
 
         $token = JWTAuth::fromUser($user);
 

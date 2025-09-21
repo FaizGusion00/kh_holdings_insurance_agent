@@ -9,6 +9,7 @@ use App\Models\PendingRegistration;
 use App\Models\User;
 use App\Services\CommissionService;
 use App\Services\CurlecPaymentService;
+use App\Services\NetworkLevelService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -708,6 +709,22 @@ class MedicalRegistrationController extends Controller
         $payment = PaymentTransaction::where('meta->pending_registration_id', $pendingRegistration->id)->first();
         if ($payment) {
             $commissionService->disburseForPayment($payment);
+        }
+
+        // Calculate network levels for all agents after new clients are added
+        try {
+            $networkLevelService = new NetworkLevelService();
+            
+            // Recalculate for the agent who registered the clients
+            $networkLevelService->calculateNetworkLevelsForAgent($agent->agent_code);
+            
+            // Recalculate for all agents in the network to ensure consistency
+            $allAgents = User::whereNotNull('agent_code')->get();
+            foreach ($allAgents as $agentUser) {
+                $networkLevelService->calculateNetworkLevelsForAgent($agentUser->agent_code);
+            }
+        } catch (\Exception $e) {
+            Log::error("Failed to calculate network levels after client registration: " . $e->getMessage());
         }
 
         return ['clients' => $clients, 'policies' => $policies];

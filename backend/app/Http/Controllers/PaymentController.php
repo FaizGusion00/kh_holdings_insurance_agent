@@ -8,6 +8,7 @@ use App\Models\PaymentTransaction;
 use App\Models\User;
 use App\Services\CommissionService;
 use App\Services\CurlecPaymentService;
+use App\Services\NotificationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -153,6 +154,20 @@ class PaymentController extends Controller
 
                 // Calculate and disburse commissions
                 $commissionService->disburseForPayment($payment);
+
+                // Create payment notification
+                try {
+                    $notificationService = new NotificationService();
+                    $notificationService->createPaymentNotification(
+                        $agent->id,
+                        $payment->amount_cents / 100, // Convert cents to dollars
+                        'completed',
+                        'Curlec',
+                        $payment->id
+                    );
+                } catch (\Exception $e) {
+                    \Log::error("Failed to create payment notification: " . $e->getMessage());
+                }
 
                 // Log the payment verification
                 \Log::info('Payment verification completed via webhook', [

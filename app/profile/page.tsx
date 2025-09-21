@@ -192,10 +192,11 @@ export default function ProfilePage() {
     const loadOverviewData = async () => {
         setIsOverviewLoading(true);
         try {
-            const [dashboardResponse, walletResponse, commissionResponse, walletTransactionsResponse, networkResponse] = await Promise.all([
+            const [dashboardResponse, walletResponse, commissionResponse, commissionSummaryResponse, walletTransactionsResponse, networkResponse] = await Promise.all([
                 apiService.getDashboardStats(),
                 apiService.getAgentWallet(),
                 apiService.getCommissionHistory(),
+                apiService.getCommissionSummary(),
                 apiService.getWalletTransactions(1),
                 apiService.getNetwork()
             ]);
@@ -218,6 +219,19 @@ export default function ProfilePage() {
                     created_at: item.created_at || item.date || new Date().toISOString()
                 }));
                 setCommissionHistory(historyData);
+            }
+            
+            if (commissionSummaryResponse.success && commissionSummaryResponse.data) {
+                // Map backend commission summary to frontend expected format
+                const backendData = commissionSummaryResponse.data;
+                const mappedData = {
+                    total_commission: backendData.total_commission || backendData.total_earned || 0,
+                    monthly_commission: backendData.monthly_commission || 0,
+                    pending_commission: backendData.pending_commission || backendData.pending_amount || 0
+                };
+                console.log('Overview - Commission Summary Data:', backendData);
+                console.log('Overview - Mapped Commission Data:', mappedData);
+                setCommissionSummary(mappedData);
             }
             
             // Generate monthly stats for charts
@@ -273,6 +287,8 @@ export default function ProfilePage() {
                 apiService.getCommissionHistory()
             ]);
             
+            console.log('Referrer Data - Commission Summary Response:', commissionSummaryResponse);
+            
             if (referralsResponse.success && referralsResponse.data) {
                 // Normalize backend payloads to a consistent shape
                 const payload: any = referralsResponse.data as any;
@@ -295,9 +311,11 @@ export default function ProfilePage() {
                 const backendData = commissionSummaryResponse.data;
                 const mappedData = {
                     total_commission: backendData.total_commission || backendData.total_earned || 0,
-                    monthly_commission: backendData.monthly_commission || 0, // Not available from backend yet
+                    monthly_commission: backendData.monthly_commission || 0,
                     pending_commission: backendData.pending_commission || backendData.pending_amount || 0
                 };
+                console.log('Commission Summary Data:', backendData);
+                console.log('Mapped Commission Data:', mappedData);
                 setCommissionSummary(mappedData);
             }
             
@@ -893,14 +911,7 @@ export default function ProfilePage() {
                                 <h2 className="text-3xl font-bold text-gray-900">Dashboard Overview</h2>
                                 <p className="text-gray-600 mt-1">Welcome back, {user?.name}! Here's your performance summary.</p>
                             </div>
-                            <div className="flex items-center gap-2">
-                                <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                                    Active Agent
-                                </div>
-                                <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                                    Level {user?.mlm_level || 0}
-                                </div>
-                            </div>
+                            
                         </div>
 
                         {isOverviewLoading ? (
@@ -945,7 +956,7 @@ export default function ProfilePage() {
                                             <div className="text-right">
                                                 <div className="text-sm opacity-90 font-medium">Total Commission</div>
                                                 <div className="text-2xl font-bold">
-                                                    RM {dashboardStats?.total_commission_earned ? parseFloat(dashboardStats.total_commission_earned).toLocaleString() : '0.00'}
+                                                    RM {commissionSummary?.total_commission ? Number(commissionSummary.total_commission).toFixed(2) : '0.00'}
                                                 </div>
                                             </div>
                                         </div>
@@ -1901,7 +1912,7 @@ export default function ProfilePage() {
                                             <div className="bg-white border border-gray-200 rounded-xl p-6">
                                                 <div className="text-sm text-gray-500">Total Commission</div>
                                                 <div className="text-3xl font-bold mt-2 text-gray-800">
-                                                    RM {referralData?.total_commission ? Number(referralData.total_commission).toFixed(2) : '0.00'}
+                                                    RM {commissionSummary?.total_commission ? Number(commissionSummary.total_commission).toFixed(2) : '0.00'}
                                         </div>
                                     </div>
                                 </div>
@@ -2172,7 +2183,7 @@ export default function ProfilePage() {
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                                     <div className="bg-gradient-to-br from-emerald-500 to-emerald-600 rounded-xl p-6 text-white">
                                         <div className="text-xs opacity-90">Total Accumulated</div>
-                                        <div className="text-3xl font-bold mt-2">RM {commissionSummary?.total_commission || user?.total_commission_earned || '0.00'}</div>
+                                        <div className="text-3xl font-bold mt-2">RM {commissionSummary?.total_commission ? Number(commissionSummary.total_commission).toFixed(2) : '0.00'}</div>
                                     </div>
                                     <div className="bg-gradient-to-br from-teal-400 to-teal-500 rounded-xl p-6 text-gray-900">
                                         <div className="text-xs text-gray-800">Current Month</div>

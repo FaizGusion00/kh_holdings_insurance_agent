@@ -7,6 +7,8 @@ use App\Models\CommissionTransaction;
 use App\Models\PaymentTransaction;
 use App\Models\MemberPolicy;
 use App\Models\AgentWallet;
+use App\Models\Hospital;
+use App\Models\Clinic;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
@@ -61,6 +63,10 @@ class DashboardController extends Controller
             // Get MLM level (calculate based on network depth)
             $mlmLevel = $this->calculateMlmLevel($user->agent_code);
             
+            // Get total hospitals and clinics count
+            $totalHospitals = Hospital::where('is_active', true)->count();
+            $totalClinics = Clinic::where('is_active', true)->count();
+            
             // Get recent activities
             $recentActivities = $this->getRecentActivities($user);
             
@@ -79,6 +85,8 @@ class DashboardController extends Controller
                         'target_achievement' => round($targetAchievement, 1),
                         'mlm_level' => $mlmLevel,
                         'wallet_balance' => number_format($walletBalance, 2),
+                        'total_hospitals' => $totalHospitals,
+                        'total_clinics' => $totalClinics,
                     ],
                     'recent_activities' => $recentActivities,
                     'performance_data' => $performanceData,
@@ -99,6 +107,8 @@ class DashboardController extends Controller
                         'target_achievement' => 0,
                         'mlm_level' => 1,
                         'wallet_balance' => '0.00',
+                        'total_hospitals' => 0,
+                        'total_clinics' => 0,
                     ],
                     'recent_activities' => [],
                     'performance_data' => [

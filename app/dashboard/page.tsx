@@ -13,7 +13,9 @@ import {
 	Clock,
 	DollarSign,
 	UserPlus,
-	FileText
+	FileText,
+	Building2,
+	Stethoscope
 } from "lucide-react";
 import { PageTransition, StaggeredContainer, StaggeredItem, FadeIn } from "../(ui)/components/PageTransition";
 import { Modal } from "../(ui)/components/Modal";
@@ -38,53 +40,70 @@ function FamilyIcon({ className }: { className?: string }) {
 
 type MemberDisplay = { name: string; nric: string; balance: number; status: string; initial: string; color: string };
 
-function StatCard({ title, value, highlight, icon: Icon, trend }: { 
+function StatCard({ title, value, highlight, highlightColor = "blue", icon: Icon, trend }: { 
 	title: string; 
 	value: string; 
 	highlight?: boolean; 
+	highlightColor?: "blue" | "emerald" | "purple" | "orange";
 	icon?: React.ComponentType<{ className?: string }>;
 	trend?: { value: string; isPositive: boolean };
 	// onAddMember?: () => void; // Commented out for future use
 }) {
+	const getHighlightClasses = (color: string) => {
+		switch (color) {
+			case "emerald":
+				return "bg-gradient-to-br from-emerald-50 to-emerald-100 border border-emerald-200";
+			case "purple":
+				return "bg-gradient-to-br from-purple-50 to-purple-100 border border-purple-200";
+			case "orange":
+				return "bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200";
+			default:
+				return "bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200";
+		}
+	};
+
+	const getTextColor = (color: string) => {
+		switch (color) {
+			case "emerald":
+				return "text-emerald-600";
+			case "purple":
+				return "text-purple-600";
+			case "orange":
+				return "text-orange-600";
+			default:
+				return "text-[#264EE4]";
+		}
+	};
+
 	return (
-		<div className={`rounded-lg sm:rounded-xl md:rounded-2xl p-2.5 sm:p-3 md:p-4 lg:p-5 transition-all duration-300 hover:shadow-lg ${
+		<div className={`rounded-lg p-4 transition-all duration-300 ${
 			highlight 
-				? "bg-gradient-to-br from-blue-50 to-blue-100 border border-blue-200" 
-				: "bg-gradient-to-br from-gray-50 to-white border border-gray-100"
+				? getHighlightClasses(highlightColor) + " shadow-sm"
+				: "bg-white border border-gray-200 shadow-sm"
 		}`}>
-			<div className="flex items-start justify-between">
-				<div className="flex-1">
-					<div className="flex items-center gap-2 mb-1 sm:mb-2">
-						{Icon && <Icon className="w-3 h-3 sm:w-4 sm:h-4 text-[#264EE4] opacity-70" />}
-						<div className="text-gray-600 font-medium text-xs sm:text-sm">{title}</div>
+			<div className="flex items-center justify-between">
+				<div className="flex-1 min-w-0">
+					<div className="flex items-center gap-2 mb-1">
+						{Icon && <Icon className={`w-4 h-4 ${highlight ? getTextColor(highlightColor) : "text-[#264EE4]"} flex-shrink-0`} />}
+						<div className="text-gray-600 font-medium text-sm">{title}</div>
 					</div>
-					<div className={`text-sm sm:text-base md:text-lg lg:text-xl xl:text-2xl font-bold ${
-						highlight ? "text-[#264EE4]" : "text-gray-800"
+					<div className={`text-2xl font-bold mb-1 ${
+						highlight ? getTextColor(highlightColor) : "text-gray-900"
 					}`}>
 						{value}
 					</div>
 					{trend && (
-						<div className="flex items-center gap-1 mt-1 sm:mt-2">
-							<ArrowUpRight className={`w-2 h-2 sm:w-3 sm:h-3 ${trend.isPositive ? 'text-[#264EE4]' : 'text-red-500'}`} />
-							<span className={`text-xs font-medium ${trend.isPositive ? 'text-[#264EE4]' : 'text-red-600'}`}>
+						<div className="flex items-center gap-1">
+							<ArrowUpRight className={`w-3 h-3 ${trend.isPositive ? (highlight ? getTextColor(highlightColor) : 'text-[#264EE4]') : 'text-red-500'}`} />
+							<span className={`text-sm font-medium ${trend.isPositive ? (highlight ? getTextColor(highlightColor) : 'text-[#264EE4]') : 'text-red-600'}`}>
 								{trend.value}
 							</span>
 						</div>
 					)}
-					{/* Add Member Button - Commented out for future use */}
-					{/* {title === "Total Member" && onAddMember && (
-						<button
-							onClick={onAddMember}
-							className="mt-2 sm:mt-3 px-3 sm:px-4 py-1.5 sm:py-2 bg-gradient-to-r from-teal-400 to-teal-500 hover:from-teal-500 hover:to-teal-600 text-white text-xs sm:text-sm font-semibold rounded-lg transition-all duration-300 hover:shadow-md transform hover:-translate-y-0.5 flex items-center gap-2"
-						>
-							<Plus className="w-3 h-3 sm:w-4 sm:h-4" />
-							Add Member
-						</button>
-					)} */}
 				</div>
 				{title === "Total Member" && (
-					<div className="w-16 h-16 sm:w-20 sm:h-20 md:w-24 md:h-24 lg:w-28 lg:h-28 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden">
-						<FamilyIcon className="w-full h-full object-cover" />
+					<div className="w-16 h-16 rounded-full bg-blue-50 flex items-center justify-center overflow-hidden flex-shrink-0 ml-3">
+						<FamilyIcon className="w-10 h-10 object-cover" />
 					</div>
 				)}
 			</div>
@@ -105,20 +124,20 @@ function MemberCard({ m }: { m: Member }) {
 	const color = colors[m.id % colors.length];
 	
 	return (
-		<div className="rounded-lg sm:rounded-xl border border-gray-100 bg-white p-2.5 sm:p-3 md:p-4 lg:p-5 transition-all duration-300 hover:shadow-md hover:border-blue-200 group">
-			<div className="flex items-start gap-2 sm:gap-3 md:gap-4">
-				<div className={`w-8 h-8 sm:w-10 sm:h-10 md:w-12 md:h-12 lg:w-14 lg:h-14 rounded-full grid place-content-center text-white font-bold text-xs sm:text-sm md:text-base lg:text-lg flex-shrink-0 shadow-lg ${color}`}>
+		<div className="rounded-xl border border-gray-200 bg-white p-4 transition-all duration-300 hover:shadow-lg hover:border-blue-200 group">
+			<div className="flex items-center gap-3">
+				<div className={`w-12 h-12 rounded-full grid place-content-center text-white font-bold text-base flex-shrink-0 shadow-md ${color}`}>
 					{initial}
 				</div>
-				<div className="flex-1 space-y-1.5 sm:space-y-2 min-w-0">
+				<div className="flex-1 min-w-0">
 					<div className="space-y-1">
-						<div className="text-xs sm:text-sm text-gray-500 font-medium">Name</div>
-						<div className="text-xs sm:text-sm md:text-base font-semibold text-gray-800 truncate">{m.name}</div>
+						<div className="text-xs text-gray-500 font-medium">Name</div>
+						<div className="text-base font-semibold text-gray-800 truncate">{m.name}</div>
 					</div>
-					<div className="grid grid-cols-2 gap-2 sm:gap-3 text-xs sm:text-sm">
+					<div className="grid grid-cols-2 gap-3 mt-2 text-xs">
 						<div>
 							<div className="text-gray-500">NRIC</div>
-							<div className="font-medium text-gray-700">{m.nric}</div>
+							<div className="font-medium text-gray-700 truncate">{m.nric}</div>
 						</div>
 						<div>
 							<div className="text-gray-500">Balance</div>
@@ -126,8 +145,8 @@ function MemberCard({ m }: { m: Member }) {
 						</div>
 					</div>
 				</div>
-				<div className="flex flex-col items-end gap-1.5 sm:gap-2">
-					<span className={`px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-full text-[9px] sm:text-[10px] md:text-xs font-semibold leading-none ${
+				<div className="flex flex-col items-end gap-1">
+					<span className={`px-2 py-1 rounded-full text-xs font-semibold leading-none ${
 						m.status === "Active" 
 							? "bg-green-100 text-green-700 border border-green-200" 
 							: "bg-gray-100 text-gray-700 border border-gray-200"
@@ -135,7 +154,7 @@ function MemberCard({ m }: { m: Member }) {
 						{m.status}
 					</span>
 					<div className="opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-						<ArrowUpRight className="w-3 h-3 sm:w-4 sm:h-4 text-[#264EE4]" />
+						<ArrowUpRight className="w-3 h-3 text-[#264EE4]" />
 					</div>
 				</div>
 			</div>
@@ -188,13 +207,13 @@ function RecentActivityCard({ activity }: { activity: RecentActivity }) {
 	const title = getTitle(activity.type);
 
 	return (
-		<div className="flex items-start gap-3 p-3 rounded-lg border border-gray-100 bg-white hover:shadow-md transition-all duration-300">
-			<div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${colorClasses}`}>
-				<Icon className="w-4 h-4" />
+		<div className="flex items-center gap-2 p-2.5 rounded-lg border border-gray-100 bg-white hover:shadow-md transition-all duration-300">
+			<div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${colorClasses}`}>
+				<Icon className="w-3.5 h-3.5" />
 			</div>
 			<div className="flex-1 min-w-0">
-				<div className="text-sm font-semibold text-gray-800 mb-1">{title}</div>
-				<div className="text-xs text-gray-600 mb-2">{activity.description}</div>
+				<div className="text-xs font-semibold text-gray-800 truncate">{title}</div>
+				<div className="text-xs text-gray-600 truncate">{activity.description}</div>
 				<div className="text-xs text-gray-500">
 					{new Date(activity.created_at).toLocaleDateString('en-US', {
 						month: 'short',
@@ -315,7 +334,7 @@ export default function DashboardPage() {
 						</div>
 					</FadeIn>
 					
-					<div className="flex flex-col gap-2 sm:gap-3 md:gap-4 lg:gap-5">
+					<div className="flex flex-col gap-4">
 						{/* Header Section */}
 						<FadeIn delay={0.4}>
 							<div className="text-center sm:text-left">
@@ -364,9 +383,9 @@ export default function DashboardPage() {
 							</div>
 						</FadeIn>
 						
-						<div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4 sm:gap-6 md:gap-8 lg:gap-10">
+						<div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
 							{/* Left Column - Enhanced Stats */}
-							<StaggeredContainer className="grid grid-cols-1 gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
+							<StaggeredContainer className="grid grid-cols-1 gap-3">
 								<StaggeredItem>
 									<StatCard 
 										title="Total Member" 
@@ -383,27 +402,55 @@ export default function DashboardPage() {
 										value={`RM ${dashboardData ? parseFloat(dashboardData.total_commission_earned).toLocaleString() : '0.00'}`} 
 										icon={TrendingUp}
 										trend={{ value: `${dashboardData?.target_achievement || 0}% of target`, isPositive: dashboardData ? dashboardData.target_achievement >= 50 : false }}
+										highlight
+										highlightColor="emerald"
 									/>
 								</StaggeredItem>
-								<StaggeredItem>
+								{/* <StaggeredItem>
 									<StatCard 
 										title="Active Members" 
 										value={dashboardData ? dashboardData.active_members.toString() : '0'} 
 										icon={Hospital}
 									/>
-								</StaggeredItem>
-								<StaggeredItem>
+								</StaggeredItem> */}
+								{/* <StaggeredItem>
 									<StatCard 
 										title="Network Level" 
 										value={`Level ${dashboardData ? dashboardData.mlm_level : 0}`} 
 										icon={Activity}
+										highlight
+										highlightColor="purple"
 									/>
+								</StaggeredItem> */}
+								<StaggeredItem>
+									<div className="rounded-lg p-4 bg-gradient-to-br from-orange-50 to-orange-100 border border-orange-200 shadow-sm">
+										<div className="flex items-center justify-between mb-3">
+											<div className="flex items-center gap-2">
+												<Building2 className="w-4 h-4 text-orange-600" />
+												<div className="text-gray-600 font-medium text-sm">Supported Facilities</div>
+											</div>
+										</div>
+										<div className="grid grid-cols-2 gap-4">
+											<div className="text-center">
+												<div className="text-2xl font-bold text-orange-600 mb-1">
+													{dashboardData ? dashboardData.total_hospitals.toString() : '0'}
+												</div>
+												<div className="text-xs text-gray-600 font-medium">Hospitals</div>
+											</div>
+											<div className="text-center">
+												<div className="text-2xl font-bold text-orange-600 mb-1">
+													{dashboardData ? dashboardData.total_clinics.toString() : '0'}
+												</div>
+												<div className="text-xs text-gray-600 font-medium">Clinics</div>
+											</div>
+										</div>
+									</div>
 								</StaggeredItem>
 							</StaggeredContainer>
 							
 							{/* Right Column - Enhanced Member List */}
 							<FadeIn delay={0.6}>
-								<div className="flex flex-col gap-1.5 sm:gap-2 md:gap-3 lg:gap-4">
+								<div className="flex flex-col gap-3">
 									<div className="flex items-center justify-between">
 										<div>
 											<div className="flex items-center gap-2 mb-1 sm:mb-2">
@@ -426,18 +473,20 @@ export default function DashboardPage() {
 												<StaggeredItem key={m.id}>
 													<button 
 														onClick={()=> setShowDetails({
+															id: m.id,
 															name: m.name,
 															nric: m.nric,
 															race: m.race || "Not specified",
 															status: m.status,
-															paymentTerms: "Monthly ( RM40 per month )",
-															packageName: "Standard",
-															validity: "13 Days",
+															paymentTerms: m.active_policies_count > 0 ? "Active Plan" : "No Plan",
+															packageName: m.active_policies_count > 0 ? "Active" : "None",
+															validity: m.active_policies_count > 0 ? "Active" : "No Plan",
 															relationship: m.relationship_with_agent || "Not specified",
 															registeredAt: m.registration_date,
 															emergencyName: m.emergency_contact_name || "Not specified",
 															emergencyPhone: m.emergency_contact_phone || "Not specified",
 															emergencyRelationship: m.emergency_contact_relationship || "Not specified",
+															active_policies_count: m.active_policies_count,
 														})} 
 														className="block text-left w-full"
 													>

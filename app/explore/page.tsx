@@ -129,6 +129,14 @@ export default function ExplorePage() {
 							<StaggeredItem>
 								<div className="flex flex-col gap-2 sm:gap-3 md:gap-4">
 									<motion.button 
+										onClick={() => {
+											const link = document.createElement('a');
+											link.href = '/assets/documents/program_sep_2025.pdf';
+											link.download = 'program_sep_2025.pdf';
+											document.body.appendChild(link);
+											link.click();
+											document.body.removeChild(link);
+										}}
 										className="h-9 sm:h-10 md:h-12 px-3 sm:px-4 md:px-6 rounded-lg bg-gradient-to-r from-blue-600 to-blue-700 text-white font-medium hover:from-blue-700 hover:to-blue-800 transition-all duration-300 transform hover:-translate-y-0.5 shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
 										whileHover={{ scale: 1.02 }}
 										whileTap={{ scale: 0.98 }}

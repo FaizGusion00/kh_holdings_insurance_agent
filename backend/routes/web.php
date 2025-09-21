@@ -4,16 +4,14 @@ use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
 use App\Http\Controllers\AdminController;
-use App\Http\Controllers\AdminAuthController;
-use App\Http\Controllers\AdminPlanController;
-use App\Http\Controllers\AdminUserController;
-use App\Http\Controllers\AdminCommissionController;
-use App\Http\Controllers\AdminWithdrawalController;
 use App\Http\Controllers\AdminFacilityController;
 
 Route::get('/', function () {
     return view('welcome');
 });
+
+// Include test routes
+require __DIR__.'/test.php';
 
 Route::get('/dashboard', function () {
     return view('dashboard');
