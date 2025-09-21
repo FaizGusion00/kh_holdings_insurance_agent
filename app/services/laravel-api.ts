@@ -7,6 +7,7 @@
 
 interface ApiResponse<T = any> {
   status: 'success' | 'error';
+  success?: boolean;
   message?: string;
   data?: T;
   errors?: Record<string, string[]>;
@@ -172,16 +173,24 @@ class LaravelApiService {
       if (!response.ok) {
         // For validation/auth errors, bubble backend payload to caller instead of throwing
         if (data && (response.status === 400 || response.status === 401 || response.status === 422)) {
+          if (data && typeof data === 'object') {
+            data.success = data.status === 'success';
+          }
           return data as ApiResponse<T>;
         }
         throw new Error((data && data.message) || `HTTP error! status: ${response.status}`);
       }
 
+      // Add success field for compatibility
+      if (data && typeof data === 'object') {
+        data.success = data.status === 'success';
+      }
       return data as ApiResponse<T>;
     } catch (error) {
       console.error('API request failed:', error);
       return {
         status: 'error',
+        success: false,
         message: error instanceof Error ? error.message : 'An error occurred',
       };
     }

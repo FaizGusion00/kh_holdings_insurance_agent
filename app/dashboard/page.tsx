@@ -134,10 +134,10 @@ function MemberCard({ m }: { m: Member }) {
 						<div className="text-xs text-gray-500 font-medium">Name</div>
 						<div className="text-base font-semibold text-gray-800 truncate">{m.name}</div>
 					</div>
-					<div className="grid grid-cols-2 gap-3 mt-2 text-xs">
+					<div className="space-y-2 mt-2 text-xs">
 						<div>
 							<div className="text-gray-500">NRIC</div>
-							<div className="font-medium text-gray-700 truncate">{m.nric}</div>
+							<div className="font-medium text-gray-700 truncate">{m.nric || "Not specified"}</div>
 						</div>
 						<div>
 							<div className="text-gray-500">Balance</div>
@@ -385,7 +385,7 @@ export default function DashboardPage() {
 						
 						<div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
 							{/* Left Column - Enhanced Stats */}
-							<StaggeredContainer className="grid grid-cols-1 gap-3">
+							<StaggeredContainer className="space-y-5">
 								<StaggeredItem>
 									<StatCard 
 										title="Total Member" 

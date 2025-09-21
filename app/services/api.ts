@@ -753,7 +753,7 @@ class ApiServiceBridge {
       const params = limit !== undefined ? { per_page: limit, type: unreadOnly ? 'unread' : undefined } : undefined;
       const response = await laravelApi.getNotifications(params);
       
-      if (response.status === 'success' && response.data) {
+      if (response.success && response.data) {
         const rawNotifications = response.data.notifications || [];
         
         // Transform notifications to match frontend interface

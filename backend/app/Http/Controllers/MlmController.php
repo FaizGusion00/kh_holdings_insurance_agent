@@ -35,12 +35,19 @@ class MlmController extends Controller
         // Transform to the expected format
         $transformedMembers = $downlineMembers->map(function ($networkLevel) {
             $user = $networkLevel->user;
+            
+            // Get the user's wallet balance
+            $wallet = \App\Models\AgentWallet::where('user_id', $user->id)->first();
+            $balance = $wallet ? $wallet->balance_cents / 100 : 0;
+            
             return (object) [
                 'id' => $user->id,
                 'name' => $user->name,
                 'email' => $user->email,
+                'nric' => $user->nric,
                 'agent_code' => $user->agent_code,
                 'phone_number' => $user->phone_number,
+                'balance' => $balance,
                 'created_at' => $user->created_at,
                 'mlm_level' => $networkLevel->level,
                 'registration_date' => $user->created_at,

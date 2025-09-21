@@ -21,10 +21,10 @@ export function NotificationBell({ className = "" }: NotificationBellProps) {
   const fetchNotifications = async () => {
     try {
       setIsLoading(true);
-      const response = await apiService.getNotifications(100, false);
+      const response = await apiService.getNotifications(50, false); // Fetch all notifications, not just unread
       if (response.success && response.data) {
-        setNotifications(response.data.data);
-        setUnreadCount(response.data.unread_count);
+        setNotifications(response.data.data || []);
+        setUnreadCount(response.data.unread_count || 0);
       }
     } catch (error) {
       console.error("Failed to fetch notifications:", error);
